@@ -6,6 +6,8 @@
 
 ![TheySay 多平台实时聚合示意图](overview-diagram-zh.svg)
 
+App 界面：
+
 ![TheySay 桌面看板截图](screenshot.png)
 
 ## 下载安装

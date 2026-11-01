@@ -6,6 +6,8 @@ Stop jumping between endless browser tabs and apps. **TheySay** brings your favo
 
 ![How TheySay Aggregates X, Threads, and Discord into One Screen](docs/overview-diagram.svg)
 
+App screenshot:
+
 ![TheySay Dashboard Screenshot](docs/screenshot.png)
 
 ## Download
