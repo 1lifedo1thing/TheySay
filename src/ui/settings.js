@@ -56,6 +56,7 @@ const {
 } = require('../core/ticker');
 const {
   applyHeaderColor,
+  buildHeaderSurfaceGradient,
   resolveHeaderPalette,
   applyChatBgColor,
   resolveChatBgPalette,
@@ -217,7 +218,7 @@ function updateHeaderPreviewUI(bgColor, { liveApply = false } = {}) {
   const iconEl = document.getElementById('setting-header-preview-icon');
 
   if (barEl) {
-    barEl.style.backgroundColor = palette.bg;
+    barEl.style.background = buildHeaderSurfaceGradient(palette.bg);
     barEl.style.borderBottomColor = 'transparent';
   }
   if (nameEl) nameEl.style.color = palette.text;
@@ -266,7 +267,7 @@ function updateChatBgPreviewUI(bgColor, { liveApply = false } = {}) {
     curHeader === DEFAULT_HEADER_BG_COLOR ||
     curHeader === DEFAULT_DARK_HEADER_BG_COLOR
   ) {
-    if (barEl) barEl.style.backgroundColor = palette.bg;
+    if (barEl) barEl.style.background = buildHeaderSurfaceGradient(palette.bg);
     if (nameEl) nameEl.style.color = palette.text;
     if (handleEl) handleEl.style.color = palette.subtext;
     if (iconEl) iconEl.style.color = palette.subtext;

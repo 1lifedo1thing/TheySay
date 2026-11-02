@@ -36,6 +36,7 @@ const {
   STORAGE_LANGUAGE_KEY,
   STORAGE_FILTER_KEYWORDS_KEY,
   STORAGE_AUTO_CHECK_UPDATES_KEY,
+  STORAGE_ONBOARDING_COMPLETED_KEY,
   DEFAULT_TWITTER_INTERVAL_MINUTES,
   DEFAULT_DISCORD_INTERVAL_MINUTES,
   DEFAULT_THREADS_INTERVAL_MINUTES,
@@ -551,6 +552,10 @@ const [getAutoCheckUpdates, saveAutoCheckUpdates] = createBoolStorage(
   STORAGE_AUTO_CHECK_UPDATES_KEY,
   DEFAULT_AUTO_CHECK_UPDATES
 );
+const [getOnboardingCompleted, saveOnboardingCompleted] = createBoolStorage(
+  STORAGE_ONBOARDING_COMPLETED_KEY,
+  false
+);
 
 const [getTickerFgColor, saveTickerFgColor] = createColorStorage(
   STORAGE_TICKER_FG_COLOR_KEY,
@@ -915,6 +920,8 @@ module.exports = {
   saveAppBadgeEnabled,
   getAutoCheckUpdates,
   saveAutoCheckUpdates,
+  getOnboardingCompleted,
+  saveOnboardingCompleted,
   getTickerFgColor,
   saveTickerFgColor,
   getTickerBgColor,

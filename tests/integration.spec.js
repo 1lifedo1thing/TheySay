@@ -12,7 +12,8 @@ const {
   STORAGE_HEADER_BG_COLOR_KEY,
   STORAGE_CHAT_BG_COLOR_KEY,
   STORAGE_BUBBLE_BG_COLOR_KEY,
-  STORAGE_LANGUAGE_KEY
+  STORAGE_LANGUAGE_KEY,
+  STORAGE_ONBOARDING_COMPLETED_KEY
 } = require('../src/core/constants');
 const { isChineseLocale, resolveLanguageCode } = require('../src/core/i18n');
 
@@ -87,6 +88,41 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await expect(page.locator('header.top-nav')).toHaveClass(/mantine-Paper-root/);
     await expect(page.locator('header.top-nav')).toHaveClass(/mantine-side-nav/);
     await expect(page.locator('header.top-nav')).toHaveClass(/is-collapsed/);
+
+    // Verify first-launch onboarding tour automatically activates on Step 1 (left login button)
+    await expect(page.locator('body')).toHaveClass(/driver-active/);
+    await expect(page.locator('#btn-login-menu')).toHaveClass(/driver-active-element/);
+    const onboardingPopover = page.locator('.driver-popover.theysay-onboarding-popover');
+    await expect(onboardingPopover).toBeVisible();
+    await expect(onboardingPopover.locator('.driver-popover-progress-text')).toHaveText('1 / 2');
+    await expect(onboardingPopover.locator('[data-onboarding-step="login"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-platform-row')).toHaveCount(3);
+
+    // Advance to Step 2 (slot input wrapper showcasing all 3 platform formats in one pop-up)
+    await onboardingPopover.locator('.driver-popover-next-btn').click();
+    await expect(page.locator('#slot-input-wrapper-0')).toHaveClass(/driver-active-element/);
+    await expect(onboardingPopover.locator('.driver-popover-progress-text')).toHaveText('2 / 2');
+    await expect(onboardingPopover.locator('[data-onboarding-step="input"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-format-card[data-platform="twitter"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-format-card[data-platform="threads"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-format-card[data-platform="discord"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-format-code[data-example="elonmusk"]')).toBeVisible();
+    await expect(onboardingPopover.locator('.onboarding-format-code[data-example="threads:@zuck"]')).toBeVisible();
+    await expect(
+      onboardingPopover.locator(
+        '.onboarding-format-code[data-example="https://discord.com/channels/100000000000000001/200000000000000002"]'
+      )
+    ).toBeVisible();
+
+    // Complete the onboarding tour and verify persistence
+    await onboardingPopover.locator('.driver-popover-next-btn').click();
+    await expect(page.locator('body')).not.toHaveClass(/driver-active/);
+    const onboardingDoneVal = await page.evaluate(
+      (key) => localStorage.getItem(key),
+      STORAGE_ONBOARDING_COMPLETED_KEY
+    );
+    expect(onboardingDoneVal).toBe('1');
+
     await expect(page.locator('#btn-sidebar-toggle')).toBeVisible();
     await page.locator('#btn-sidebar-toggle').click();
     await expect(page.locator('header.top-nav')).toHaveClass(/is-expanded/);
@@ -149,13 +185,20 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
     const headerStyle = await page.locator('#slot-card-0 .slot-header').evaluate((el) => {
       const cs = getComputedStyle(el);
+      const beforeCs = getComputedStyle(el, '::before');
+      const afterCs = getComputedStyle(el, '::after');
       return {
         borderBottomStyle: cs.borderBottomStyle,
-        justifyContent: cs.justifyContent
+        justifyContent: cs.justifyContent,
+        beforeBackdropFilter: beforeCs.backdropFilter || beforeCs.webkitBackdropFilter || '',
+        afterBgImage: afterCs.backgroundImage || ''
       };
     });
     expect(headerStyle.borderBottomStyle).toBe('none');
     expect(headerStyle.justifyContent).toBe('flex-start');
+    expect(headerStyle.beforeBackdropFilter).toContain('blur');
+    expect(headerStyle.afterBgImage).toContain('linear-gradient');
+    expect(headerStyle.afterBgImage).toContain('78%');
   });
 
   test('3. Theme switching, Settings modal & Windows/macOS global Escape handling', async () => {
@@ -2147,4 +2190,46 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.locator('#btn-settings-close').click();
     await expect(settingsOverlay).toHaveClass(/is-closed/);
   });
+
+  test('22. Onboarding tour format example selection, header visibility & Escape dismissal', async () => {
+    const prevInputVal = await page.locator('#handle-input-0').inputValue();
+
+    // Launch onboarding tour programmatically
+    await page.evaluate(() => {
+      window.__THEYSAY_ONBOARDING.start({ startIndex: 0 });
+    });
+
+    const popover = page.locator('.driver-popover.theysay-onboarding-popover');
+    await expect(popover).toBeVisible();
+    await expect(page.locator('#btn-login-menu')).toHaveClass(/driver-active-element/);
+
+    // Advance to step 2
+    await popover.locator('.driver-popover-next-btn').click();
+    await expect(page.locator('#slot-input-wrapper-0')).toBeVisible();
+    await expect(page.locator('#slot-input-wrapper-0')).toHaveClass(/driver-active-element/);
+
+    // Click Threads format example chip and verify input updates
+    await popover.locator('.onboarding-format-code[data-example="threads:@zuck"]').click();
+    await expect(page.locator('#handle-input-0')).toHaveValue('threads:@zuck');
+    await expect(page.locator('#slot-input-prefix-0')).toHaveClass(/is-threads/);
+
+    // Click Discord format example chip and verify input prefix switches to #
+    await popover
+      .locator(
+        '.onboarding-format-code[data-example="https://discord.com/channels/100000000000000001/200000000000000002"]'
+      )
+      .click();
+    await expect(page.locator('#slot-input-prefix-0')).toHaveText('#');
+
+    // Restore original input value
+    await page.evaluate((val) => {
+      const input = document.getElementById('handle-input-0');
+      if (input) input.value = val;
+    }, prevInputVal);
+
+    // Dismiss onboarding tour with Escape key
+    await page.keyboard.press('Escape');
+    await expect(page.locator('body')).not.toHaveClass(/driver-active/);
+  });
 });
+

@@ -1005,11 +1005,11 @@ body {
   align-items: center;
   justify-content: flex-start;
   gap: 5px;
-  padding: 2px 10px;
+  padding: 0 10px 4px;
   height: 28px;
   max-height: 28px;
   box-sizing: border-box;
-  background: var(--slot-header-surface, linear-gradient(180deg, var(--bg-card) 82%, transparent 100%));
+  background: transparent;
   border-bottom: none;
   flex-shrink: 0;
   cursor: grab;
@@ -1020,7 +1020,62 @@ body {
   right: 0;
   z-index: 6;
   opacity: 1;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  transition: opacity 0.15s ease;
+}
+
+.slot-header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 78%,
+    rgba(0, 0, 0, 0.88) 84%,
+    rgba(0, 0, 0, 0.56) 90%,
+    rgba(0, 0, 0, 0.22) 96%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 78%,
+    rgba(0, 0, 0, 0.88) 84%,
+    rgba(0, 0, 0, 0.56) 90%,
+    rgba(0, 0, 0, 0.22) 96%,
+    transparent 100%
+  );
+}
+
+.slot-header::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  z-index: -1;
+  pointer-events: none;
+  background: var(
+    --slot-header-surface,
+    linear-gradient(
+      180deg,
+      var(--slot-header-bg, var(--bg-card)) 0%,
+      var(--slot-header-bg, var(--bg-card)) 78%,
+      color-mix(in srgb, var(--slot-header-bg, var(--bg-card)) 86%, transparent) 84%,
+      color-mix(in srgb, var(--slot-header-bg, var(--bg-card)) 54%, transparent) 90%,
+      color-mix(in srgb, var(--slot-header-bg, var(--bg-card)) 20%, transparent) 96%,
+      transparent 100%
+    )
+  );
+  transition: background 0.15s ease;
 }
 
 .grid-stack-item > .ui-resizable-e,
@@ -3214,9 +3269,9 @@ body {
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  background-color: var(--bg-card);
+  background: var(--slot-header-surface, var(--bg-card));
   border-bottom: none;
-  transition: background-color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .header-preview-drag {
@@ -3938,4 +3993,293 @@ body {
 .mantine-UnstyledButton-root.tweet-popup-fallback-btn:hover {
   background-color: rgba(29, 155, 240, 0.18);
 }
+
+/* ====================================================
+   First-Launch Onboarding Tour (driver.js + Mantine)
+   ==================================================== */
+body.driver-active .slot-card > .slot-header {
+  opacity: 1 !important;
+}
+
+@keyframes onboardingPulseRing {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--accent-blue), 0 0 12px rgba(29, 155, 240, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--accent-blue), 0 0 20px rgba(29, 155, 240, 0.55);
+  }
+}
+
+@keyframes onboardingPopoverEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.driver-active .driver-active-element {
+  border-radius: 6px;
+  animation: onboardingPulseRing 2s infinite ease-in-out;
+}
+
+.driver-popover.theysay-onboarding-popover {
+  background-color: var(--bg-popover);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  min-width: 320px;
+  max-width: 380px;
+  padding: 15px 16px 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  animation: onboardingPopoverEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.driver-popover.theysay-onboarding-popover.onboarding-popover-step-2 {
+  min-width: 370px;
+  max-width: 435px;
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.35;
+  padding-right: 24px;
+  margin-bottom: 6px;
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-description {
+  font-size: 12.5px;
+  color: var(--text-body);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-close-btn {
+  color: var(--text-muted);
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-close-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-control-hover);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--bg-popover);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--bg-popover);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--bg-popover);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--bg-popover);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-progress-text {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-footer-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  text-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-prev-btn {
+  background-color: var(--bg-control);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-prev-btn:hover {
+  background-color: var(--bg-control-hover);
+  color: var(--text-main);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-next-btn {
+  background-color: var(--accent-blue);
+  color: #ffffff;
+  border: 1px solid var(--accent-blue);
+}
+
+.driver-popover.theysay-onboarding-popover .driver-popover-next-btn:hover {
+  background-color: var(--accent-blue-hover);
+  border-color: var(--accent-blue-hover);
+}
+
+.onboarding-step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.onboarding-step-desc {
+  font-size: 12px;
+  line-height: 1.48;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.onboarding-platform-list,
+.onboarding-formats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.onboarding-platform-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
+}
+
+.onboarding-platform-icon {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.onboarding-platform-icon.is-twitter,
+.onboarding-platform-icon.is-threads {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+}
+
+.onboarding-platform-icon.is-discord {
+  background-color: rgba(88, 101, 242, 0.15);
+  color: #5865f2;
+}
+
+.onboarding-platform-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.onboarding-platform-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.onboarding-platform-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.onboarding-format-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
+}
+
+.onboarding-format-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.onboarding-format-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.onboarding-format-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.onboarding-format-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.onboarding-format-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background-color: var(--bg-card);
+  color: var(--accent-blue);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  word-break: break-all;
+}
+
+.onboarding-format-code:hover {
+  border-color: var(--accent-blue);
+  background-color: rgba(29, 155, 240, 0.1);
+}
+
+.onboarding-step-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding-top: 2px;
+}
+
+.onboarding-kbd {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 

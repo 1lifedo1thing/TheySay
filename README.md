@@ -28,8 +28,10 @@ Download the latest installer for **macOS**, **Windows**, or **Linux** from **[G
 
 ## Quick Start
 
+On your first launch, an interactive spotlight guide (`driver.js`) walks you through signing in and showcases all three supported input formats right inside a single pop-up:
+
 1. **Connect Your Accounts**: Use the left sidebar to sign in to X, Threads, or Discord (your session stays 100% local on your device).
-2. **Set Up Your Grid**: Pick a layout from `1×1` to `4×4` in the sidebar, then click any card header to enter an `@handle` or Discord channel link.
+2. **Set Up Your Grid**: Pick a layout from `1×1` to `4×4` in the sidebar, then click any card header to enter an `@handle` (`elonmusk`, `@OpenAI`), a Threads profile (`threads:@zuck`, `threads.com/@mosseri`), or a Discord channel link (`https://discord.com/channels/...`).
 3. **Customize Your Workflow**: Click the bell icon on any card to toggle desktop notifications, or open **Settings** to adjust refresh intervals, ticker colors, language (`English` / `中文`), and keyword filters.
 
 ## License

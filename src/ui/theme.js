@@ -69,22 +69,33 @@ function resolveHeaderPalette(bgHex) {
   };
 }
 
+function buildHeaderSurfaceGradient(bgHex) {
+  const fallback =
+    getStoredTheme() === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
+  const norm = normalizeHexColor(bgHex, fallback);
+  const { r, g, b } = colord(norm).toRgb();
+  return [
+    'linear-gradient(180deg',
+    `rgba(${r}, ${g}, ${b}, 1) 0%`,
+    `rgba(${r}, ${g}, ${b}, 1) 78%`,
+    `rgba(${r}, ${g}, ${b}, 0.86) 84%`,
+    `rgba(${r}, ${g}, ${b}, 0.54) 90%`,
+    `rgba(${r}, ${g}, ${b}, 0.2) 96%`,
+    `rgba(${r}, ${g}, ${b}, 0) 100%)`
+  ].join(', ');
+}
+
 function applyHeaderColor(bgHex) {
   if (typeof document === 'undefined' || !document.documentElement) return;
   const fallback = getStoredTheme() === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
   const norm = normalizeHexColor(bgHex, fallback);
   const root = document.documentElement;
   root.style.setProperty('--slot-header-bg', norm);
+  root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(norm));
 
   const currentChatBg = normalizeHexColor(getChatBgColor(), fallback);
   if (norm === currentChatBg || norm === DEFAULT_HEADER_BG_COLOR || norm === DEFAULT_DARK_HEADER_BG_COLOR) {
     const chatPalette = resolveChatBgPalette(norm);
-    root.style.setProperty(
-      '--slot-header-surface',
-      norm === currentChatBg
-        ? 'linear-gradient(180deg, var(--bg-card) 82%, transparent 100%)'
-        : norm
-    );
     root.style.setProperty('--slot-header-text', chatPalette.text);
     root.style.setProperty('--slot-header-subtext', chatPalette.subtext);
     root.style.setProperty('--slot-header-pill-bg', chatPalette.pillBg);
@@ -100,7 +111,6 @@ function applyHeaderColor(bgHex) {
   }
 
   const palette = resolveHeaderPalette(norm);
-  root.style.setProperty('--slot-header-surface', palette.bg);
   root.style.setProperty('--slot-header-text', palette.text);
   root.style.setProperty('--slot-header-subtext', palette.subtext);
   root.style.setProperty('--slot-header-border', palette.border);
@@ -135,12 +145,7 @@ function applyChatBgColor(bgHex) {
     headerBg === DEFAULT_HEADER_BG_COLOR ||
     headerBg === DEFAULT_DARK_HEADER_BG_COLOR
   ) {
-    root.style.setProperty(
-      '--slot-header-surface',
-      headerBg === palette.bg
-        ? 'linear-gradient(180deg, var(--bg-card) 82%, transparent 100%)'
-        : headerBg
-    );
+    root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(headerBg));
     root.style.setProperty('--slot-header-text', palette.text);
     root.style.setProperty('--slot-header-subtext', palette.subtext);
     root.style.setProperty(
@@ -255,6 +260,7 @@ module.exports = {
   applyTheme,
   initTheme,
   applyHeaderColor,
+  buildHeaderSurfaceGradient,
   resolveHeaderPalette,
   applyChatBgColor,
   resolveChatBgPalette,

@@ -82,6 +82,10 @@ const { getCanonicalTargetKey } = require('./src/core/source');
 const { showToast } = require('./src/core/utils');
 const { t, applyPageLocalization } = require('./src/core/i18n');
 const { mountMantineShell } = require('./src/ui/dist/mantine-shell');
+const {
+  initOnboarding,
+  refreshOnboardingLocaleUI
+} = require('./src/ui/onboarding');
 
 // Sync stored/default theme ('light' on first launch) before mounting Mantine outer shell
 const initialTheme = getStoredTheme();
@@ -114,6 +118,7 @@ function refreshLocalizedAppUI(lang) {
   refreshUpdateStatusUI();
   localizeSlotsUI(slots);
   refreshSlotsContent(slots);
+  refreshOnboardingLocaleUI();
 }
 
 function handleFetchSlot(slotIndex, extraOptions = {}) {
@@ -617,4 +622,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Start automatic GitHub Releases version check
   startAutoUpdateCheck();
+
+  // Launch first-run onboarding guided tour if not yet completed
+  initOnboarding({ slots });
 });

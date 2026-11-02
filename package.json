@@ -132,6 +132,7 @@
     "@tabler/icons-react": "^3.34.0",
     "an-array-of-english-words": "^2.0.0",
     "colord": "^2.10.0",
+    "driver.js": "^1.10.2",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.8.11",
     "gridstack": "^13.2.0",

@@ -541,7 +541,28 @@ const MESSAGES = {
     'settings.savedSoundOff': 'Discord muted',
     'settings.soundOffShort': 'Discord muted',
     'settings.savedToast': 'Settings saved (Header: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})',
-    'settings.toastSaved': 'Settings saved (Header: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})'
+    'settings.toastSaved': 'Settings saved (Header: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})',
+
+    // First-Launch Onboarding Tour
+    'onboarding.nextBtn': 'Next →',
+    'onboarding.prevBtn': '← Back',
+    'onboarding.doneBtn': 'Get Started',
+    'onboarding.closeBtnLabel': 'Close guide',
+    'onboarding.progressText': '{current} / {total}',
+    'onboarding.step1.title': '1. Log In to Platform Accounts',
+    'onboarding.step1.desc': 'Click the Accounts button on the left sidebar to log in or switch your Twitter / X, Threads, and Discord accounts, or export & import your Profile.',
+    'onboarding.step1.twitterHint': 'Timeline & Member-Only posts',
+    'onboarding.step1.threadsHint': 'Public & logged-in Threads feeds',
+    'onboarding.step1.discordHint': 'Server & private Discord channels',
+    'onboarding.step2.title': '2. Enter Any Account or Channel Link',
+    'onboarding.step2.desc': 'Each card input supports 3 platform formats — enter any format below and press Enter:',
+    'onboarding.step2.twitterTitle': 'Twitter / X',
+    'onboarding.step2.twitterDesc': 'Enter username, @handle, or profile URL',
+    'onboarding.step2.threadsTitle': 'Threads',
+    'onboarding.step2.threadsDesc': 'Enter threads: prefix or Threads profile URL',
+    'onboarding.step2.discordTitle': 'Discord',
+    'onboarding.step2.discordDesc': 'Paste any server or DM channel URL',
+    'onboarding.step2.footerTip': 'Press Enter to start fetching. Click any card header name anytime to edit.'
   },
 
   zh: {
@@ -948,7 +969,28 @@ const MESSAGES = {
     'settings.savedSoundOff': 'Discord 已静音',
     'settings.soundOffShort': 'Discord 已静音',
     'settings.savedToast': '设置已保存 (Title栏: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})',
-    'settings.toastSaved': '设置已保存 (Title栏: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})'
+    'settings.toastSaved': '设置已保存 (Title栏: {bg}, Twitter: {twitter}, Discord: {discord}, {memberText}, {soundText})',
+
+    // First-Launch Onboarding Tour
+    'onboarding.nextBtn': '下一步 →',
+    'onboarding.prevBtn': '← 上一步',
+    'onboarding.doneBtn': '开始使用',
+    'onboarding.closeBtnLabel': '关闭引导',
+    'onboarding.progressText': '{current} / {total}',
+    'onboarding.step1.title': '1. 登录平台账号',
+    'onboarding.step1.desc': '点击左侧边栏的「登录账号」按钮，即可登录或切换 Twitter / X、Threads 与 Discord 账号，也可在此一键导出或导入 Profile 配置。',
+    'onboarding.step1.twitterHint': '抓取时间线与会员专属推文',
+    'onboarding.step1.threadsHint': '监控公开或已登录 Threads 动态',
+    'onboarding.step1.discordHint': '监控已加入的服务器与私密频道',
+    'onboarding.step2.title': '2. 输入监控账号或频道链接',
+    'onboarding.step2.desc': '在卡片顶部输入框中，支持以下三种不同的平台输入格式，输入后按回车即可开始抓取：',
+    'onboarding.step2.twitterTitle': 'Twitter / X 账号',
+    'onboarding.step2.twitterDesc': '直接输入用户名、@handle 或主页链接',
+    'onboarding.step2.threadsTitle': 'Threads 账号',
+    'onboarding.step2.threadsDesc': '输入 threads: 前缀或 Threads 主页链接',
+    'onboarding.step2.discordTitle': 'Discord 频道链接',
+    'onboarding.step2.discordDesc': '直接粘贴服务器或私信频道完整链接',
+    'onboarding.step2.footerTip': '输入后按 Enter 回车即可开始抓取；随时点击卡片顶部名称即可修改。'
   }
 };
 
