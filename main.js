@@ -8,6 +8,7 @@ const { getLinkPreview, getPreviewFromContent } = require('link-preview-js');
 const { DISCORD_PARTITION, THREADS_PARTITION, THREADS_LOGIN_URL } = require('./src/core/constants');
 const { TWEET_EMBED_ENHANCEMENT_SCRIPT } = require('./src/ui/tweet_embed');
 const { t, setActiveLanguageOverride } = require('./src/core/i18n');
+const { isUrlHostMatching } = require('./src/core/utils');
 const {
   setMockReleaseData,
   getLastUpdateState,
@@ -1312,7 +1313,7 @@ ipcMain.on('open-threads-login-window', async (event, payload = {}) => {
       const hasSession =
         sessionCookies.some(c => c && c.value) || userCookies.some(c => c && c.value);
       const isThreadsHome =
-        (url.includes('threads.com') || url.includes('threads.net')) &&
+        isUrlHostMatching(url, ['threads.com', 'threads.net']) &&
         !url.includes('/login');
 
       if (hasSession && isThreadsHome) {
@@ -1653,7 +1654,7 @@ app.whenReady().then(() => {
         if (!contents.isDestroyed()) {
           contents.executeJavaScript(DISABLE_WEB_BADGING_SCRIPT).catch(() => {});
           const url = typeof contents.getURL === 'function' ? contents.getURL() : '';
-          if (url && url.includes('discord.com')) {
+          if (isUrlHostMatching(url, 'discord.com')) {
             const backup = discordAllowTokenClear ? null : getOrRecoverDiscordAuthBackup();
             contents
               .executeJavaScript(buildDiscordRuntimeSyncScript(backup, discordAllowTokenClear))
@@ -1714,7 +1715,7 @@ app.whenReady().then(() => {
   }, (details, callback) => {
     const responseHeaders = Object.assign({}, details.responseHeaders);
     const url = details.url || '';
-    if (url.includes('cdninstagram.com') || url.includes('fbcdn.net')) {
+    if (isUrlHostMatching(url, ['cdninstagram.com', 'fbcdn.net'])) {
       for (const key of Object.keys(responseHeaders)) {
         if (key.toLowerCase() === 'cross-origin-resource-policy') {
           delete responseHeaders[key];
@@ -1727,11 +1728,13 @@ app.whenReady().then(() => {
     } else if (url.includes('tweet-result')) {
       responseHeaders['cache-control'] = ['public, max-age=86400, stale-while-revalidate=604800'];
     } else if (
-      url.includes('pbs.twimg.com') ||
-      url.includes('discordapp.com') ||
-      url.includes('discordapp.net') ||
-      url.includes('cdninstagram.com') ||
-      url.includes('fbcdn.net')
+      isUrlHostMatching(url, [
+        'pbs.twimg.com',
+        'discordapp.com',
+        'discordapp.net',
+        'cdninstagram.com',
+        'fbcdn.net'
+      ])
     ) {
       responseHeaders['cache-control'] = ['public, max-age=2592000'];
     }

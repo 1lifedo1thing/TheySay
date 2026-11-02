@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { randomBetween, sleep, showToast, isNetworkOnline, canReachHost } = require('../core/utils');
+const { randomBetween, sleep, showToast, isNetworkOnline, canReachHost, isUnavatarUrl } = require('../core/utils');
 const {
   getPostKey,
   processAndSortPosts,
@@ -626,7 +626,7 @@ async function fetchThreadsSlot(
       }
     }
 
-    if (!latestAvatarUrl && slot.avatarImg && slot.avatarImg.src && !slot.avatarImg.src.includes('unavatar.io')) {
+    if (!latestAvatarUrl && slot.avatarImg && slot.avatarImg.src && !isUnavatarUrl(slot.avatarImg.src)) {
       latestAvatarUrl = slot.avatarImg.src;
     }
     if (latestAvatarUrl) {

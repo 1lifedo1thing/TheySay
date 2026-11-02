@@ -105,6 +105,29 @@ function stripDiscordEditedText(str) {
     .trim();
 }
 
+function getUrlHostname(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    return new URL(rawUrl).hostname.toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+function isUrlHostMatching(rawUrl, allowedDomains) {
+  const host = getUrlHostname(rawUrl);
+  if (!host) return false;
+  const list = Array.isArray(allowedDomains) ? allowedDomains : [allowedDomains];
+  return list.some((domain) => {
+    const d = String(domain || '').toLowerCase();
+    return Boolean(d && (host === d || host.endsWith(`.${d}`)));
+  });
+}
+
+function isUnavatarUrl(rawUrl) {
+  return isUrlHostMatching(rawUrl, 'unavatar.io');
+}
+
 module.exports = {
   escapeHtml,
   randomBetween,
@@ -113,5 +136,8 @@ module.exports = {
   showToast,
   isNetworkOnline,
   canReachHost,
-  stripDiscordEditedText
+  stripDiscordEditedText,
+  getUrlHostname,
+  isUrlHostMatching,
+  isUnavatarUrl
 };

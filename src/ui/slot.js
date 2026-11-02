@@ -1,7 +1,7 @@
 const { shell, ipcRenderer } = require('electron');
 const pLimit = require('p-limit');
 const { MAX_SLOTS, DEFAULT_SLOT_MUTED } = require('../core/constants');
-const { escapeHtml, showToast, formatFetchTime, stripDiscordEditedText } = require('../core/utils');
+const { escapeHtml, showToast, formatFetchTime, stripDiscordEditedText, isUnavatarUrl } = require('../core/utils');
 const {
   getPostId,
   getPostKey,
@@ -2247,7 +2247,7 @@ function loadSlotCache(slots) {
           }
         }
 
-        if (isThreads && avatarUrl && avatarUrl.includes('unavatar.io')) {
+        if (isThreads && avatarUrl && isUnavatarUrl(avatarUrl)) {
           avatarUrl = '';
           slotEntry.avatarUrl = '';
         }
@@ -2265,7 +2265,7 @@ function loadSlotCache(slots) {
                 updateSlotAvatar(slot, res.threads.avatarUrl);
                 if (Array.isArray(slot.loadedPosts)) {
                   slot.loadedPosts.forEach(p => {
-                    if (!p.avatarUrl || p.avatarUrl.includes('unavatar.io')) {
+                    if (!p.avatarUrl || isUnavatarUrl(p.avatarUrl)) {
                       p.avatarUrl = res.threads.avatarUrl;
                     }
                   });
@@ -2283,7 +2283,7 @@ function loadSlotCache(slots) {
         }
         if (Array.isArray(posts) && posts.length > 0) {
           posts.forEach(p => {
-            if (isThreads && p.avatarUrl && p.avatarUrl.includes('unavatar.io')) {
+            if (isThreads && p.avatarUrl && isUnavatarUrl(p.avatarUrl)) {
               p.avatarUrl = avatarUrl || '';
             }
           });

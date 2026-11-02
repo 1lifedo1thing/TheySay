@@ -305,9 +305,14 @@ function fetchSyndicationUrl(url) {
 
     // Fallback between syndication.x.com and cdn.syndication.twimg.com
     try {
-      const fallbackUrl = targetUrl.includes('syndication.x.com')
-        ? targetUrl.replace('syndication.x.com', 'cdn.syndication.twimg.com')
-        : targetUrl.replace('cdn.syndication.twimg.com', 'syndication.x.com');
+      const parsedTarget = new URL(targetUrl);
+      const host = parsedTarget.hostname.toLowerCase();
+      if (host === 'syndication.x.com') {
+        parsedTarget.hostname = 'cdn.syndication.twimg.com';
+      } else if (host === 'cdn.syndication.twimg.com') {
+        parsedTarget.hostname = 'syndication.x.com';
+      }
+      const fallbackUrl = parsedTarget.toString();
       if (fallbackUrl !== targetUrl) {
         const res = await httpsGetText(fallbackUrl, headers);
         if (res.status >= 200 && res.status < 300 && res.body) {
@@ -342,15 +347,28 @@ function embedFrameEnhancementRuntime(win, doc) {
       const origOpen = NativeXHR.prototype.open;
       const origSend = NativeXHR.prototype.send;
       const origSetRequestHeader = NativeXHR.prototype.setRequestHeader;
+      const isSyndicationEndpoint = function (rawUrl) {
+        try {
+          const baseHref = win.location && win.location.href ? win.location.href : 'https://platform.twitter.com';
+          const parsed = new URL(String(rawUrl || ''), baseHref);
+          const h = parsed.hostname.toLowerCase();
+          return (
+            h === 'syndication.x.com' ||
+            h.endsWith('.syndication.x.com') ||
+            h === 'syndication.twimg.com' ||
+            h.endsWith('.syndication.twimg.com') ||
+            h === 'syndication.twitter.com' ||
+            h.endsWith('.syndication.twitter.com')
+          );
+        } catch (_) {
+          return false;
+        }
+      };
 
       NativeXHR.prototype.open = function (method, url) {
         this.__theysayMethod = method;
         this.__theysayUrl = String(url || '');
-        if (
-          this.__theysayUrl.includes('syndication.x.com') ||
-          this.__theysayUrl.includes('syndication.twimg.com') ||
-          this.__theysayUrl.includes('syndication.twitter.com')
-        ) {
+        if (isSyndicationEndpoint(this.__theysayUrl)) {
           this.__theysayIntercept = true;
           return;
         }

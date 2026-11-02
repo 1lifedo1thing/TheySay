@@ -375,19 +375,19 @@ export function AppearanceSettingsSection() {
                 className="header-preview-bubble read"
                 id="setting-bubble-preview-item"
               >
-                <span
-                  id="setting-ticker-preview-text"
-                  data-i18n-html="settings.previewPostHtml"
-                >
-                  关注{' '}
+                <span id="setting-ticker-preview-text">
+                  <span data-i18n="settings.previewPostPart1">关注 </span>
                   <span className="ticker-highlight ticker-preview-chip">
                     $NVDA
-                  </span>{' '}
-                  与{' '}
+                  </span>
+                  <span data-i18n="settings.previewPostPart2"> 与 </span>
                   <span className="ticker-highlight ticker-preview-chip">
                     AAPL
-                  </span>{' '}
-                  财报表现，留意{' '}
+                  </span>
+                  <span data-i18n="settings.previewPostPart3">
+                    {' '}
+                    财报表现，留意{' '}
+                  </span>
                   <span className="ticker-highlight ticker-preview-chip">
                     qqq
                   </span>

@@ -499,6 +499,9 @@ const MESSAGES = {
     'settings.tickerBgHexAria': 'Ticker background color Hex',
     'settings.previewAvatar': 'E',
     'settings.previewName': 'Example Account',
+    'settings.previewPostPart1': 'Watching ',
+    'settings.previewPostPart2': ' & ',
+    'settings.previewPostPart3': ' earnings, tracking ',
     'settings.previewPostHtml': 'Watching <span class="ticker-highlight ticker-preview-chip">$NVDA</span> &amp; <span class="ticker-highlight ticker-preview-chip">AAPL</span> earnings, tracking <span class="ticker-highlight ticker-preview-chip">qqq</span>',
     'settings.tickerStatsLoaded': 'Loaded {count} NASDAQ stock & ETF symbols (matches $cashtags & case-insensitive tickers)',
     'settings.tickerStats': 'Loaded {count} NASDAQ stock & ETF symbols (matches $cashtags & case-insensitive tickers)',
@@ -927,6 +930,9 @@ const MESSAGES = {
     'settings.tickerBgHexAria': 'Ticker 背景色 Hex',
     'settings.previewAvatar': '示',
     'settings.previewName': '示例账号',
+    'settings.previewPostPart1': '关注 ',
+    'settings.previewPostPart2': ' 与 ',
+    'settings.previewPostPart3': ' 财报表现，留意 ',
     'settings.previewPostHtml': '关注 <span class="ticker-highlight ticker-preview-chip">$NVDA</span> 与 <span class="ticker-highlight ticker-preview-chip">AAPL</span> 财报表现，留意 <span class="ticker-highlight ticker-preview-chip">qqq</span>',
     'settings.tickerStatsLoaded': '已加载 {count} 个 NASDAQ 美股与 ETF 代码（支持 $ 符号与大小写自动匹配）',
     'settings.tickerStats': '已加载 {count} 个 NASDAQ 美股与 ETF 代码（支持 $ 符号与大小写自动匹配）',
@@ -1056,11 +1062,6 @@ function applyPageLocalization(lang = getCurrentLanguage()) {
     } else {
       el.textContent = t(key, {}, lang);
     }
-  });
-
-  document.querySelectorAll('[data-i18n-html]').forEach((el) => {
-    const key = el.getAttribute('data-i18n-html');
-    if (key) el.innerHTML = t(key, {}, lang);
   });
 
   document.querySelectorAll('[data-i18n-title]').forEach((el) => {
