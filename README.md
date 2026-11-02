@@ -1,6 +1,6 @@
 # TheySay — All the Voices on One Screen
 
-[English](README.md) | [简体中文](docs/README_zh.md)
+[English](README.md) | [简体中文](docs/README_zh.md) | [日本語](docs/README_ja.md)
 
 Stop jumping between endless browser tabs and apps. **TheySay** brings your favorite **X (Twitter)** accounts, **Threads** creators, and **Discord** channels together into a single, customizable desktop dashboard.
 
