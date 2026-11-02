@@ -1,6 +1,6 @@
 # TheySay — 在一个界面，实时追踪所有声音
 
-[English](../README.md) | [简体中文](README_zh.md)
+[English](../README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md)
 
 告别在无数浏览器标签页与软件之间来回切换。**TheySay** 将你关注的 **X (Twitter)** 博主、**Threads** 创作者与 **Discord** 频道汇聚在同一块桌面看板上，重要动态一目了然。
 
