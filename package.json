@@ -11,8 +11,10 @@
     "start": "node scripts/build-ui.js && node scripts/brand-app.js && electron .",
     "postinstall": "node scripts/build-ui.js && node scripts/brand-app.js",
     "test": "node scripts/build-ui.js && playwright test",
-    "dist:mac": "node scripts/build-ui.js && electron-builder --mac --arm64 --publish never",
-    "dist:mac:quick": "node scripts/build-ui.js && THEYSAY_SKIP_NOTARIZE=1 electron-builder --mac --arm64 --publish never",
+    "dist:mac": "node scripts/build-ui.js && electron-builder --mac --arm64 --x64 --publish never",
+    "dist:mac:arm64": "node scripts/build-ui.js && electron-builder --mac --arm64 --publish never",
+    "dist:mac:x64": "node scripts/build-ui.js && electron-builder --mac --x64 --publish never",
+    "dist:mac:quick": "node scripts/build-ui.js && THEYSAY_SKIP_NOTARIZE=1 electron-builder --mac --arm64 --x64 --publish never",
     "dist:win": "node scripts/build-ui.js && electron-builder --win --x64 --publish never",
     "dist:linux": "node scripts/build-ui.js && electron-builder --linux --x64 --publish never",
     "dist:all": "npm run dist:mac && npm run dist:win && npm run dist:linux",
@@ -36,7 +38,8 @@
       "styles.css",
       "src/**/*",
       "data/**/*",
-      "assets/**/*"
+      "assets/**/*",
+      "!assets/*.mp4"
     ],
     "asarUnpack": [
       "data/**",
@@ -63,12 +66,14 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ]
     },
     "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "writeUpdateInfo": false
     },
     "win": {
