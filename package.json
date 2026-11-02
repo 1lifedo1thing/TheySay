@@ -3,7 +3,7 @@
   "productName": "TheySay",
   "appId": "com.laike9m.theysay",
   "desktopName": "theysay.desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Twitter / X & Discord dynamic parallel dashboard",
   "main": "main.js",
   "scripts": {

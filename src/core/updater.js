@@ -10,7 +10,7 @@ const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/r
 let mockReleaseData = null;
 let lastUpdateState = {
   state: 'idle',
-  currentVersion: '1.0.0',
+  currentVersion: '1.0.1',
   latestVersion: null,
   updateAvailable: false,
   releaseName: '',
@@ -187,7 +187,7 @@ async function fetchLatestGitHubRelease({ userAgent = 'TheySay-Updater' } = {}) 
 }
 
 async function checkForUpdates({
-  currentVersion = '1.0.0',
+  currentVersion = '1.0.1',
   platform = process.platform,
   arch = process.arch,
   env = process.env,
@@ -195,7 +195,7 @@ async function checkForUpdates({
   userAgent = 'TheySay-Updater',
   onStatus
 } = {}) {
-  const normCurrent = normalizeVersionString(currentVersion) || '1.0.0';
+  const normCurrent = normalizeVersionString(currentVersion) || '1.0.1';
   updateState(
     {
       state: 'checking',

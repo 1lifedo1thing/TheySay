@@ -146,7 +146,7 @@ let onSaveCallback = null;
 let autoUpdateIntervalId = null;
 let currentUpdateState = {
   state: 'idle',
-  currentVersion: '1.0.0',
+  currentVersion: '1.0.1',
   latestVersion: null,
   updateAvailable: false,
   progress: 0
@@ -395,7 +395,7 @@ function refreshUpdateStatusUI(nextState = null) {
   const btnCheck = document.getElementById('btn-check-updates');
   const btnSettings = document.getElementById('btn-settings');
 
-  const curVer = currentUpdateState.currentVersion || '1.0.0';
+  const curVer = currentUpdateState.currentVersion || '1.0.1';
   const latestVer = currentUpdateState.latestVersion || curVer;
   const state = currentUpdateState.state || 'idle';
   const hasUpdate = !!(currentUpdateState.updateAvailable || state === 'downloaded');
@@ -733,7 +733,7 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
 
       if (currentUpdateState.state === 'downloaded') {
         const targetVer =
-          currentUpdateState.latestVersion || currentUpdateState.currentVersion || '1.0.0';
+          currentUpdateState.latestVersion || currentUpdateState.currentVersion || '1.0.1';
         showToast(t('settings.toastUpdateInstalling', { version: targetVer }), 'info', 3000);
         try {
           const res = await ipcRenderer.invoke('apply-downloaded-update');
@@ -762,7 +762,7 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
             });
             showToast(
               t('settings.toastUpdateDownloaded', {
-                version: res.version || currentUpdateState.latestVersion || '1.0.0'
+                version: res.version || currentUpdateState.latestVersion || '1.0.1'
               }),
               'success',
               3500
