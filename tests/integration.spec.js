@@ -28,7 +28,10 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
     electronApp = await electron.launch({
       executablePath: require('electron'),
-      args: [path.join(__dirname, '..', 'main.js')],
+      args: [
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+        path.join(__dirname, '..', 'main.js')
+      ],
       env: {
         ...process.env,
         THEYSAY_USER_DATA_DIR: userDataDir,
@@ -706,7 +709,10 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await electronApp.close();
     electronApp = await electron.launch({
       executablePath: require('electron'),
-      args: [path.join(__dirname, '..', 'main.js')],
+      args: [
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+        path.join(__dirname, '..', 'main.js')
+      ],
       env: {
         ...process.env,
         THEYSAY_USER_DATA_DIR: userDataDir,
@@ -2231,5 +2237,188 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('body')).not.toHaveClass(/driver-active/);
   });
+
+  test('23. Runtime-matched Chrome User-Agent & Client Hints consistency across sessions, webviews, and OAuth popups (Issue #4)', async () => {
+    const rendererUaCheck = await page.evaluate(() => {
+      const { getOrCreateSlotWebview, getOrCreateThreadsSlotWebview } = require('./src/data/webview');
+      const { getOrCreateDiscordWebview } = require('./src/data/discord');
+      const bgContainer = document.getElementById('bg-webviews-container');
+      const xWv = getOrCreateSlotWebview(0, bgContainer, []);
+      const threadsWv = getOrCreateThreadsSlotWebview(0, bgContainer, []);
+      const discordWv = getOrCreateDiscordWebview(bgContainer);
+      const uaDataBrands =
+        navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)
+          ? navigator.userAgentData.brands
+          : [];
+
+      return {
+        chromeVersion: process.versions.chrome,
+        navigatorUa: navigator.userAgent,
+        uaDataBrands,
+        xWebviewUa: xWv ? xWv.getAttribute('useragent') : null,
+        threadsWebviewUa: threadsWv ? threadsWv.getAttribute('useragent') : null,
+        discordWebviewUa: discordWv ? discordWv.getAttribute('useragent') : null
+      };
+    });
+
+    const expectedMajor = String(rendererUaCheck.chromeVersion).split('.')[0];
+    expect(Number(expectedMajor)).toBeGreaterThanOrEqual(131);
+
+    // 1. User-Agent must be a clean Chrome/<major>.0.0.0 UA without Electron or TheySay tokens
+    expect(rendererUaCheck.navigatorUa).not.toContain('Electron/');
+    expect(rendererUaCheck.navigatorUa).not.toContain('TheySay/');
+    expect(rendererUaCheck.navigatorUa).toContain(`Chrome/${expectedMajor}.0.0.0`);
+
+    // 2. Background webviews (X, Threads, Discord) must all match the runtime Chrome UA
+    expect(rendererUaCheck.xWebviewUa).toBe(rendererUaCheck.navigatorUa);
+    expect(rendererUaCheck.threadsWebviewUa).toBe(rendererUaCheck.navigatorUa);
+    expect(rendererUaCheck.discordWebviewUa).toBe(rendererUaCheck.navigatorUa);
+
+    // 3. Verify main process sessions and child OAuth popup window User-Agent / Sec-CH-UA / stealth consistency
+    const http = require('http');
+    const requests = {};
+    const server = http.createServer((req, res) => {
+      requests[req.url] = {
+        userAgent: req.headers['user-agent'] || '',
+        secChUa: req.headers['sec-ch-ua'] || '',
+        secChUaMobile: req.headers['sec-ch-ua-mobile'] || '',
+        secChUaPlatform: req.headers['sec-ch-ua-platform'] || ''
+      };
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      if (req.url === '/login') {
+        res.end('<script>window.open("/oauth-popup", "_blank", "width=400,height=500");</script>');
+      } else {
+        res.end('<html><body>OAuth Popup</body></html>');
+      }
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+
+    let mainUaCheck;
+    try {
+      mainUaCheck = await electronApp.evaluate(
+        async ({ app, BrowserWindow, session }, serverPort) => {
+          const xSession = session.fromPartition('persist:x_session');
+          const discordSession = session.fromPartition('persist:discord_session');
+          const threadsSession = session.fromPartition('persist:threads_session');
+
+          const testLoginWin = new BrowserWindow({
+            show: false,
+            webPreferences: {
+              partition: 'persist:x_session',
+              backgroundThrottling: false,
+              disableBlinkFeatures: 'AutomationControlled'
+            }
+          });
+
+          const popupLoaded = new Promise((resolve) => {
+            testLoginWin.webContents.on('did-create-window', (childWin) => {
+              childWin.webContents.once('did-finish-load', async () => {
+                const childUa = childWin.webContents.getUserAgent();
+                const childUaData = await childWin.webContents.executeJavaScript(`
+                  (async () => {
+                    const highEntropy = navigator.userAgentData && typeof navigator.userAgentData.getHighEntropyValues === 'function'
+                      ? await navigator.userAgentData.getHighEntropyValues(['fullVersionList', 'uaFullVersion', 'formFactors'])
+                      : null;
+                    return {
+                      ua: navigator.userAgent,
+                      webdriver: navigator.webdriver,
+                      uaData: navigator.userAgentData ? {
+                        brands: navigator.userAgentData.brands,
+                        mobile: navigator.userAgentData.mobile,
+                        platform: navigator.userAgentData.platform
+                      } : null,
+                      highEntropy,
+                      chromeKeys: window.chrome ? Object.keys(window.chrome) : []
+                    };
+                  })()
+                `);
+                childWin.destroy();
+                resolve({ childUa, childUaData });
+              });
+            });
+          });
+
+          await testLoginWin.loadURL(`http://127.0.0.1:${serverPort}/login`);
+          const { childUa: childWindowUa, childUaData } = await popupLoaded;
+          const loginWindowUa = testLoginWin.webContents.getUserAgent();
+          testLoginWin.destroy();
+
+          return {
+            fallbackUa: app.userAgentFallback,
+            defaultSessionUa: session.defaultSession.getUserAgent(),
+            xSessionUa: xSession.getUserAgent(),
+            discordSessionUa: discordSession.getUserAgent(),
+            threadsSessionUa: threadsSession.getUserAgent(),
+            loginWindowUa,
+            childWindowUa,
+            childUaData
+          };
+        },
+        port
+      );
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+
+    expect(mainUaCheck.fallbackUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.defaultSessionUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.xSessionUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.discordSessionUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.threadsSessionUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.loginWindowUa).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.childWindowUa).toBe(rendererUaCheck.navigatorUa);
+
+    const expectedPlatform =
+      process.platform === 'win32'
+        ? 'Windows'
+        : process.platform === 'darwin'
+          ? 'macOS'
+          : 'Linux';
+    if (process.platform === 'win32') {
+      expect(rendererUaCheck.navigatorUa).toContain('Windows NT 10.0; Win64; x64');
+    } else if (process.platform === 'darwin') {
+      expect(rendererUaCheck.navigatorUa).toContain('Macintosh; Intel Mac OS X');
+    } else {
+      expect(rendererUaCheck.navigatorUa).toContain('X11; Linux');
+    }
+
+    // 4. Verify outgoing HTTP headers on both parent login window and child OAuth popup
+    expect(requests['/login'].userAgent).toBe(rendererUaCheck.navigatorUa);
+    expect(requests['/oauth-popup'].userAgent).toBe(rendererUaCheck.navigatorUa);
+    expect(requests['/login'].secChUa).toContain(`"Google Chrome";v="${expectedMajor}"`);
+    expect(requests['/login'].secChUa).toContain(`"Chromium";v="${expectedMajor}"`);
+    expect(requests['/oauth-popup'].secChUa).toContain(`"Google Chrome";v="${expectedMajor}"`);
+    expect(requests['/oauth-popup'].secChUaMobile).toBe('?0');
+    expect(requests['/oauth-popup'].secChUaPlatform).toBe(`"${expectedPlatform}"`);
+
+    // 5. Verify main-world JS identity inside the OAuth popup (Google BotGuard checks)
+    expect(mainUaCheck.childUaData.ua).toBe(rendererUaCheck.navigatorUa);
+    expect(mainUaCheck.childUaData.webdriver).toBe(false);
+    expect(mainUaCheck.childUaData.uaData.mobile).toBe(false);
+    expect(mainUaCheck.childUaData.uaData.platform).toBe(expectedPlatform);
+    expect(mainUaCheck.childUaData.uaData.brands).toEqual(
+      expect.arrayContaining([
+        { brand: 'Chromium', version: expectedMajor },
+        { brand: 'Google Chrome', version: expectedMajor }
+      ])
+    );
+    expect(
+      mainUaCheck.childUaData.uaData.brands.some((b) => /Electron/i.test(b.brand))
+    ).toBe(false);
+    expect(mainUaCheck.childUaData.highEntropy.uaFullVersion).toBe(rendererUaCheck.chromeVersion);
+    expect(mainUaCheck.childUaData.highEntropy.fullVersionList).toEqual(
+      expect.arrayContaining([
+        { brand: 'Chromium', version: rendererUaCheck.chromeVersion },
+        { brand: 'Google Chrome', version: rendererUaCheck.chromeVersion }
+      ])
+    );
+    expect(mainUaCheck.childUaData.chromeKeys).toEqual(
+      expect.arrayContaining(['app', 'csi', 'loadTimes', 'runtime'])
+    );
+  });
 });
+
+
 

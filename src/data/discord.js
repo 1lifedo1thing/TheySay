@@ -48,8 +48,7 @@ const { markPlatformLoginExpired, markPlatformLoginSuccess } = require('../ui/au
 const { notifySlotNewMessages } = require('../ui/notification');
 const { t, normalizeDiscordChannelFallback } = require('../core/i18n');
 
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+const USER_AGENT = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 
 // Cold-booting the Discord SPA (gateway handshake + guild sync) is slow; a warm
 // in-app channel switch is not.

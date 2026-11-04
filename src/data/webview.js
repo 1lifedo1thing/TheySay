@@ -12,7 +12,7 @@ function getOrCreateSlotWebview(slotIndex, bgWebviewsContainer, slots = []) {
     wv.src = 'about:blank';
     wv.setAttribute('partition', 'persist:x_session');
     wv.setAttribute('allowpopups', 'true');
-    wv.setAttribute('useragent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
+    wv.setAttribute('useragent', navigator.userAgent);
     wv.setAttribute('webpreferences', 'backgroundThrottling=no');
 
     wv._isReady = false;
@@ -38,7 +38,7 @@ function getOrCreateThreadsSlotWebview(slotIndex, bgWebviewsContainer, slots = [
     wv.src = 'about:blank';
     wv.setAttribute('partition', THREADS_PARTITION);
     wv.setAttribute('allowpopups', 'true');
-    wv.setAttribute('useragent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
+    wv.setAttribute('useragent', navigator.userAgent);
     wv.setAttribute('webpreferences', 'backgroundThrottling=no');
 
     wv._isReady = false;

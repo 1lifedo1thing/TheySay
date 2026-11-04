@@ -44,7 +44,8 @@
     "asarUnpack": [
       "data/**",
       "src/ui/tweet-embed-frame.html",
-      "src/data/discord-preload.js"
+      "src/data/discord-preload.js",
+      "src/data/stealth-preload.js"
     ],
     "afterAllArtifactBuild": "scripts/notarize-mac.js",
     "publish": [

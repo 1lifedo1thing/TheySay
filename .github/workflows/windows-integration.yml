@@ -1,4 +1,4 @@
-name: Windows Integration Tests
+name: Windows & Linux Integration Tests
 
 on:
   push:
@@ -41,3 +41,42 @@ jobs:
             test-results/
             playwright-report/
           if-no-files-found: ignore
+
+  linux-integration:
+    name: Electron Integration (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Linux Xvfb & Electron runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 libxtst6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Electron integration tests under Xvfb
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" npm test
+
+      - name: Upload Linux screenshots & test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-integration-artifacts
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+

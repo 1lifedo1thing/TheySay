@@ -161,11 +161,28 @@ function loadWindowState() {
   }
 }
 
-// Discord's web client behaves best when it believes it is plain Chrome; the
-// default Electron UA makes it try to light up desktop-app-only code paths.
-const DISCORD_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+// Derive a clean Chrome User-Agent and matching Client Hints directly from Electron's
+// native Chromium runtime by stripping Electron/TheySay tokens and reducing Chrome/<major>.x.y.z to .0.0.0.
+const CHROME_FULL_VERSION = process.versions.chrome || '132.0.0.0';
+const CHROME_MAJOR_VERSION = CHROME_FULL_VERSION.split('.')[0] || '132';
+const CHROME_CH_PLATFORM =
+  process.platform === 'win32'
+    ? 'Windows'
+    : process.platform === 'darwin'
+      ? 'macOS'
+      : 'Linux';
+const CHROME_SEC_CH_UA = `"Chromium";v="${CHROME_MAJOR_VERSION}", "Google Chrome";v="${CHROME_MAJOR_VERSION}", "Not:A-Brand";v="24"`;
+const CHROME_SEC_CH_UA_FULL_VERSION_LIST = `"Chromium";v="${CHROME_FULL_VERSION}", "Google Chrome";v="${CHROME_FULL_VERSION}", "Not:A-Brand";v="24.0.0.0"`;
 
+const CHROME_USER_AGENT = app.userAgentFallback
+  .replace(/\s+(?:Electron|TheySay)\/\S+/gi, '')
+  .replace(/Chrome\/(\d+)\.\d+\.\d+\.\d+/, 'Chrome/$1.0.0.0');
+const DISCORD_USER_AGENT = CHROME_USER_AGENT;
+app.userAgentFallback = CHROME_USER_AGENT;
+
+// Disable Blink AutomationControlled flag so Google BotGuard (accounts.google.com)
+// and Cloudflare do not block embedded OAuth popups via navigator.webdriver.
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 // Suppress noisy Chromium internal warnings and OS kernel mismatch logs on macOS
 app.commandLine.appendSwitch('log-level', '3');
 app.commandLine.appendSwitch('disable-logging');
@@ -395,6 +412,101 @@ const DISCORD_PRELOAD_UNPACKED_PATH = DISCORD_PRELOAD_RAW_PATH.replace('app.asar
 const DISCORD_PRELOAD_PATH = fs.existsSync(DISCORD_PRELOAD_UNPACKED_PATH)
   ? DISCORD_PRELOAD_UNPACKED_PATH
   : DISCORD_PRELOAD_RAW_PATH;
+
+const STEALTH_PRELOAD_RAW_PATH = path.join(__dirname, 'src', 'data', 'stealth-preload.js');
+const STEALTH_PRELOAD_UNPACKED_PATH = STEALTH_PRELOAD_RAW_PATH.replace('app.asar', 'app.asar.unpacked');
+const STEALTH_PRELOAD_PATH = fs.existsSync(STEALTH_PRELOAD_UNPACKED_PATH)
+  ? STEALTH_PRELOAD_UNPACKED_PATH
+  : STEALTH_PRELOAD_RAW_PATH;
+
+function configureSocialSession(partitionSession, extraPreloads = []) {
+  if (!partitionSession) return;
+  try {
+    partitionSession.setUserAgent(CHROME_USER_AGENT);
+  } catch (_) {}
+
+  const preloadEntries = [
+    { id: 'theysay-stealth-preload', filePath: STEALTH_PRELOAD_PATH },
+    ...extraPreloads
+  ].filter((entry) => entry && entry.filePath && fs.existsSync(entry.filePath));
+
+  try {
+    if (typeof partitionSession.registerPreloadScript === 'function') {
+      const existingPreloads =
+        typeof partitionSession.getPreloadScripts === 'function'
+          ? partitionSession.getPreloadScripts()
+          : [];
+      const existingIds = new Set(existingPreloads.map((p) => p && p.id));
+      for (const entry of preloadEntries) {
+        if (!existingIds.has(entry.id)) {
+          partitionSession.registerPreloadScript({
+            type: 'frame',
+            id: entry.id,
+            filePath: entry.filePath
+          });
+        }
+      }
+    } else if (typeof partitionSession.setPreloads === 'function') {
+      partitionSession.setPreloads(preloadEntries.map((entry) => entry.filePath));
+    }
+  } catch (_) {}
+
+  if (partitionSession.webRequest && typeof partitionSession.webRequest.onBeforeSendHeaders === 'function') {
+    partitionSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      const headers = {};
+      const rawHeaders = details.requestHeaders || {};
+      let hasUa = false;
+      let hasSecChUa = false;
+      let hasSecChUaMobile = false;
+      let hasSecChUaPlatform = false;
+
+      for (const [key, val] of Object.entries(rawHeaders)) {
+        const lower = key.toLowerCase();
+        if (lower === 'user-agent') {
+          headers[key] = CHROME_USER_AGENT;
+          hasUa = true;
+        } else if (lower === 'sec-ch-ua') {
+          headers[key] = CHROME_SEC_CH_UA;
+          hasSecChUa = true;
+        } else if (lower === 'sec-ch-ua-full-version-list') {
+          headers[key] = CHROME_SEC_CH_UA_FULL_VERSION_LIST;
+        } else if (lower === 'sec-ch-ua-full-version') {
+          headers[key] = `"${CHROME_FULL_VERSION}"`;
+        } else if (lower === 'sec-ch-ua-platform') {
+          headers[key] = `"${CHROME_CH_PLATFORM}"`;
+          hasSecChUaPlatform = true;
+        } else if (lower === 'sec-ch-ua-mobile') {
+          headers[key] = '?0';
+          hasSecChUaMobile = true;
+        } else {
+          headers[key] = val;
+        }
+      }
+
+      if (!hasUa) {
+        headers['User-Agent'] = CHROME_USER_AGENT;
+      }
+      if (
+        typeof details.url === 'string' &&
+        (details.url.startsWith('https://') ||
+          details.url.startsWith('http://127.0.0.1') ||
+          details.url.startsWith('http://localhost'))
+      ) {
+        if (!hasSecChUa) {
+          headers['sec-ch-ua'] = CHROME_SEC_CH_UA;
+        }
+        if (!hasSecChUaMobile) {
+          headers['sec-ch-ua-mobile'] = '?0';
+        }
+        if (!hasSecChUaPlatform) {
+          headers['sec-ch-ua-platform'] = `"${CHROME_CH_PLATFORM}"`;
+        }
+      }
+
+      callback({ requestHeaders: headers });
+    });
+  }
+}
 
 let discordAllowTokenClear = false;
 
@@ -946,6 +1058,7 @@ ipcMain.on('open-login-window', async () => {
   }
 
   const xSession = session.fromPartition('persist:x_session');
+  xSession.setUserAgent(CHROME_USER_AGENT);
   let initialAuthToken = '';
   try {
     const cookies = await xSession.cookies.get({ name: 'auth_token' });
@@ -953,6 +1066,12 @@ ipcMain.on('open-login-window', async () => {
       initialAuthToken = cookies[0].value;
     }
   } catch (e) {}
+
+  if (!initialAuthToken) {
+    try {
+      await xSession.clearStorageData({ origin: 'https://accounts.google.com' });
+    } catch (_) {}
+  }
 
   loginWindow = new BrowserWindow({
     width: 620,
@@ -963,7 +1082,8 @@ ipcMain.on('open-login-window', async () => {
     modal: false,
     webPreferences: {
       partition: 'persist:x_session',
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      disableBlinkFeatures: 'AutomationControlled'
     }
   });
 
@@ -971,9 +1091,7 @@ ipcMain.on('open-login-window', async () => {
   // doesn't immediately redirect from /i/flow/login to /home and auto-close.
   // Scraped data in mainWindow's defaultSession localStorage is never touched.
   const targetUrl = initialAuthToken ? 'https://x.com/logout' : 'https://x.com/i/flow/login';
-  loginWindow.loadURL(targetUrl, {
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
-  });
+  loginWindow.loadURL(targetUrl);
 
   let hasClearedOrVisitedLogin = !initialAuthToken;
 
@@ -982,16 +1100,27 @@ ipcMain.on('open-login-window', async () => {
       const cookies = await xSession.cookies.get({ name: 'auth_token' });
       const currentToken = cookies.length > 0 && cookies[0].value ? cookies[0].value : '';
 
-      if (!currentToken || url.includes('/login') || url.includes('/i/flow/login')) {
+      if (
+        !currentToken ||
+        url.includes('/login') ||
+        url.includes('/i/flow/login') ||
+        url.includes('mode=login')
+      ) {
         hasClearedOrVisitedLogin = true;
       }
 
       if (url.includes('x.com/home') || url === 'https://x.com/' || url === 'https://x.com') {
         if (currentToken && (hasClearedOrVisitedLogin || currentToken !== initialAuthToken)) {
+          try {
+            xSession.flushStorageData();
+          } catch (_) {}
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('login-status-changed', { loggedIn: true });
           }
           setTimeout(() => {
+            try {
+              xSession.flushStorageData();
+            } catch (_) {}
             if (loginWindow && !loginWindow.isDestroyed()) {
               loginWindow.close();
             }
@@ -1007,6 +1136,9 @@ ipcMain.on('open-login-window', async () => {
 
   loginWindow.on('closed', async () => {
     loginWindow = null;
+    try {
+      xSession.flushStorageData();
+    } catch (_) {}
     if (mainWindow && !mainWindow.isDestroyed()) {
       const cookies = await xSession.cookies.get({ name: 'auth_token' });
       const loggedIn = cookies.length > 0 && !!cookies[0].value;
@@ -1026,6 +1158,7 @@ ipcMain.on('open-discord-login-window', async (event, payload = {}) => {
   }
 
   const discordSession = session.fromPartition(DISCORD_PARTITION);
+  discordSession.setUserAgent(CHROME_USER_AGENT);
   // If user is already logged in and clicks to switch Discord account, clear only
   // the Discord partition session so /login does not immediately bounce back to /app
   // and close the window. Main window's scraped data cache is never touched.
@@ -1053,13 +1186,12 @@ ipcMain.on('open-discord-login-window', async (event, payload = {}) => {
     modal: false,
     webPreferences: {
       partition: DISCORD_PARTITION,
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      disableBlinkFeatures: 'AutomationControlled'
     }
   });
 
-  discordLoginWindow.loadURL('https://discord.com/login', {
-    userAgent: DISCORD_USER_AGENT
-  });
+  discordLoginWindow.loadURL('https://discord.com/login');
 
   let reportedLoggedIn = false;
   let notifiedMainWindow = false;
@@ -1276,6 +1408,7 @@ ipcMain.on('open-threads-login-window', async (event, payload = {}) => {
   }
 
   const threadsSession = session.fromPartition(THREADS_PARTITION);
+  threadsSession.setUserAgent(CHROME_USER_AGENT);
   if (payload && payload.wasLoggedIn) {
     try {
       await threadsSession.clearStorageData({
@@ -1296,13 +1429,12 @@ ipcMain.on('open-threads-login-window', async (event, payload = {}) => {
     modal: false,
     webPreferences: {
       partition: THREADS_PARTITION,
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      disableBlinkFeatures: 'AutomationControlled'
     }
   });
 
-  threadsLoginWindow.loadURL(THREADS_LOGIN_URL, {
-    userAgent: DISCORD_USER_AGENT
-  });
+  threadsLoginWindow.loadURL(THREADS_LOGIN_URL);
 
   let reportedLoggedIn = false;
   const checkThreadsNavigation = async (url) => {
@@ -1645,10 +1777,15 @@ app.whenReady().then(() => {
   getOrRecoverDiscordAuthBackup();
 
   // Ensure background webviews (especially Discord client) are never throttled,
-  // cannot override the host app's Dock / taskbar unread badge, and never lose
-  // Discord localStorage tokens due to Discord's DevTools dimension check.
+  // cannot override the host app's Dock / taskbar unread badge, never lose
+  // Discord localStorage tokens due to Discord's DevTools dimension check,
+  // and always use a consistent runtime-matched Chrome User-Agent across
+  // login windows, OAuth child popups, and background webviews.
   app.on('web-contents-created', (event, contents) => {
     contents.setBackgroundThrottling(false);
+    contents.on('will-attach-webview', (waEvent, webPreferences) => {
+      webPreferences.disableBlinkFeatures = 'AutomationControlled';
+    });
     const onGuestPageEvent = () => {
       try {
         if (!contents.isDestroyed()) {
@@ -1676,28 +1813,22 @@ app.whenReady().then(() => {
     contents.on('page-title-updated', () => enforceHostAppBadge());
   });
 
+  const xSession = session.fromPartition('persist:x_session');
+  configureSocialSession(xSession);
+
   // The Discord & Threads clients run unattended in the background, so silence anything
   // that would try to prompt the user (notifications, mic, camera, ...).
   const discordSession = session.fromPartition(DISCORD_PARTITION);
   discordSession.setPermissionRequestHandler((webContents, permission, callback) => callback(false));
   discordSession.setPermissionCheckHandler(() => false);
-  if (fs.existsSync(DISCORD_PRELOAD_PATH)) {
-    try {
-      if (typeof discordSession.registerPreloadScript === 'function') {
-        discordSession.registerPreloadScript({
-          type: 'frame',
-          id: 'theysay-discord-preload',
-          filePath: DISCORD_PRELOAD_PATH
-        });
-      } else if (typeof discordSession.setPreloads === 'function') {
-        discordSession.setPreloads([DISCORD_PRELOAD_PATH]);
-      }
-    } catch (_) {}
-  }
+  configureSocialSession(discordSession, [
+    { id: 'theysay-discord-preload', filePath: DISCORD_PRELOAD_PATH }
+  ]);
 
   const threadsSession = session.fromPartition(THREADS_PARTITION);
   threadsSession.setPermissionRequestHandler((webContents, permission, callback) => callback(false));
   threadsSession.setPermissionCheckHandler(() => false);
+  configureSocialSession(threadsSession);
 
   // Optimize & aggressively cache Twitter/X, Threads, and Discord static assets and media locally
   session.defaultSession.webRequest.onHeadersReceived({
