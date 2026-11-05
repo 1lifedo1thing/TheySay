@@ -456,16 +456,34 @@ function embedFrameEnhancementRuntime(win, doc) {
       article[role="article"] * {
         cursor: default !important;
       }
+      article[role="article"] [data-testid="tweetText"],
+      article[role="article"] [data-testid="tweetText"] *,
       [data-testid="tweetText"],
       [data-testid="tweetText"] * {
         cursor: text !important;
         user-select: text !important;
         -webkit-user-select: text !important;
       }
+      article[role="article"] a[data-testid="tweet-text-show-more-link"],
+      article[role="article"] a[data-testid="tweet-text-show-more-link"] *,
       a[data-testid="tweet-text-show-more-link"],
       a[data-testid="tweet-text-show-more-link"] *,
+      article[role="article"] a[data-theysay-allow-open],
+      article[role="article"] a[data-theysay-allow-open] *,
       a[data-theysay-allow-open],
       a[data-theysay-allow-open] *,
+      article[role="article"][data-theysay-quoted-tweet],
+      article[role="article"][data-theysay-quoted-tweet] *,
+      article[role="article"] [data-theysay-quoted-tweet],
+      article[role="article"] [data-theysay-quoted-tweet] *,
+      article[role="article"] [data-theysay-quoted-tweet] [data-testid="tweetText"],
+      article[role="article"] [data-theysay-quoted-tweet] [data-testid="tweetText"] *,
+      [data-theysay-quoted-tweet],
+      [data-theysay-quoted-tweet] *,
+      [data-theysay-quoted-tweet] [data-testid="tweetText"],
+      [data-theysay-quoted-tweet] [data-testid="tweetText"] *,
+      article[role="article"] video,
+      article[role="article"] video *,
       video,
       video * {
         cursor: pointer !important;
@@ -577,10 +595,198 @@ function embedFrameEnhancementRuntime(win, doc) {
     }
   };
 
-  // 5. Identify the 3 allowed interactive links:
+  // 5. Identify interactive elements:
   //    (a) "Show more" link ([data-testid="tweet-text-show-more-link"])
-  //    (b) Top-right X logo (TwitterLogo/index.js)
-  //    (c) Bottom "Read X replies" primary button (PrimaryActionButton/index.js)
+  //    (b) Quoted tweet card (QuotedTweet/index.js)
+  //    (c) Top-right X logo (TwitterLogo/index.js)
+  //    (d) Bottom "Read X replies" primary button (PrimaryActionButton/index.js)
+  const isQuotedTweetArticle = (article) => {
+    if (!article || typeof article.getAttribute !== 'function') return false;
+    if (article.hasAttribute('data-theysay-quoted-tweet')) return true;
+
+    const isNestedArticle = Boolean(
+      article.parentElement && article.parentElement.closest('article[role="article"]')
+    );
+
+    let fiber = getReactFiber(article);
+    let sawFiber = false;
+    let depth = 0;
+    while (fiber && depth < 35) {
+      sawFiber = true;
+      const node = fiber.stateNode;
+      if (
+        node &&
+        node !== article &&
+        typeof node.getAttribute === 'function' &&
+        node.getAttribute('role') === 'article'
+      ) {
+        break;
+      }
+      if (fiber._debugSource && fiber._debugSource.fileName) {
+        const fn = String(fiber._debugSource.fileName);
+        if (fn.includes('QuotedTweet/')) return true;
+        if (fn.includes('ParentTweet/')) return false;
+      }
+      const props = fiber.memoizedProps || fiber.pendingProps;
+      if (props && typeof props === 'object') {
+        if (props.quotedTweet && typeof props.quotedTweet === 'object') return true;
+        if (props.parentTweet && typeof props.parentTweet === 'object') return false;
+        if (props.section === 'quote' || props.section === 'parent-quote') return true;
+        if (props.section === 'parent') return false;
+        if (
+          props.namespace &&
+          typeof props.namespace === 'object' &&
+          (props.namespace.section === 'quote' || props.namespace.section === 'parent-quote')
+        ) {
+          return true;
+        }
+        if (
+          props.namespace &&
+          typeof props.namespace === 'object' &&
+          props.namespace.section === 'parent'
+        ) {
+          return false;
+        }
+      }
+      fiber = fiber.return;
+      depth++;
+    }
+
+    if (!isNestedArticle) return false;
+
+    const nestedAnchors = article.querySelectorAll('a[href]');
+    for (let i = 0; i < nestedAnchors.length; i++) {
+      const href = nestedAnchors[i].getAttribute('href') || '';
+      if (href.includes('twcon%5Es3') || href.includes('twcon%5Es4')) return true;
+      if (href.includes('twcon%5Es2_')) return false;
+    }
+
+    return !sawFiber;
+  };
+
+  const normalizeStatusPermalink = (rawUrl) => {
+    if (!rawUrl) return '';
+    try {
+      const u = new URL(String(rawUrl), 'https://x.com');
+      u.searchParams.delete('ref_src');
+      u.searchParams.delete('ref_url');
+      u.searchParams.delete('s');
+      u.pathname = u.pathname.replace(
+        /\/(status\/\d+)\/(?:photo|video|mediaviewer|history)(?:\/.*)?$/i,
+        '/$1'
+      );
+      return u.toString();
+    } catch (_) {
+      return String(rawUrl);
+    }
+  };
+
+  const resolveQuotedTweetUrl = (quotedEl) => {
+    if (!quotedEl) return '';
+    const attrVal =
+      typeof quotedEl.getAttribute === 'function'
+        ? quotedEl.getAttribute('data-theysay-quoted-tweet')
+        : '';
+    if (attrVal && attrVal !== '1') {
+      return normalizeStatusPermalink(attrVal);
+    }
+
+    const article =
+      quotedEl.matches && quotedEl.matches('article[role="article"]')
+        ? quotedEl
+        : (quotedEl.querySelector && quotedEl.querySelector('article[role="article"]')) ||
+          (quotedEl.closest && quotedEl.closest('article[role="article"]')) ||
+          quotedEl;
+
+    let fiber = getReactFiber(article);
+    let depth = 0;
+    while (fiber && depth < 35) {
+      const node = fiber.stateNode;
+      if (
+        node &&
+        node !== article &&
+        typeof node.getAttribute === 'function' &&
+        node.getAttribute('role') === 'article'
+      ) {
+        break;
+      }
+      const inst = fiber.stateNode;
+      if (
+        inst &&
+        inst._linkRef &&
+        inst._linkRef.current &&
+        typeof inst._linkRef.current.getAttribute === 'function'
+      ) {
+        const refHref = inst._linkRef.current.getAttribute('href');
+        if (refHref) return normalizeStatusPermalink(refHref);
+      }
+      const props = fiber.memoizedProps || fiber.pendingProps;
+      if (props && typeof props === 'object') {
+        const qt =
+          (props.quotedTweet && typeof props.quotedTweet === 'object' && props.quotedTweet) ||
+          ((props.section === 'quote' || props.section === 'parent-quote') &&
+            props.tweet &&
+            typeof props.tweet === 'object' &&
+            props.tweet);
+        if (qt && qt.id_str) {
+          const screenName = qt.user && qt.user.screen_name;
+          return screenName
+            ? `https://x.com/${screenName}/status/${qt.id_str}`
+            : `https://x.com/i/web/status/${qt.id_str}`;
+        }
+        if (
+          props.link &&
+          typeof props.link === 'object' &&
+          typeof props.link.pathname === 'string' &&
+          props.link.pathname.includes('/status/')
+        ) {
+          return normalizeStatusPermalink(props.link.pathname);
+        }
+      }
+      fiber = fiber.return;
+      depth++;
+    }
+
+    if (article && typeof article.querySelectorAll === 'function') {
+      const anchors = article.querySelectorAll('a[href]');
+      for (let i = 0; i < anchors.length; i++) {
+        const href = anchors[i].getAttribute('href') || '';
+        if (href.includes('/status/')) {
+          return normalizeStatusPermalink(href);
+        }
+      }
+    }
+
+    const rootInst = findRootTweetComponentInstance();
+    if (rootInst && rootInst.state && rootInst.state.tweet) {
+      const t = rootInst.state.tweet;
+      const qt =
+        (t.quoted_tweet && t.quoted_tweet.id_str ? t.quoted_tweet : null) ||
+        (t.parent && t.parent.quoted_tweet && t.parent.quoted_tweet.id_str
+          ? t.parent.quoted_tweet
+          : null);
+      if (qt) {
+        const screenName = qt.user && qt.user.screen_name;
+        return screenName
+          ? `https://x.com/${screenName}/status/${qt.id_str}`
+          : `https://x.com/i/web/status/${qt.id_str}`;
+      }
+    }
+
+    return '';
+  };
+
+  const findQuotedTweetContainer = (target) => {
+    if (!target || typeof target.closest !== 'function') return null;
+    const tagged = target.closest('[data-theysay-quoted-tweet]');
+    if (tagged) return tagged;
+    const article = target.closest('article[role="article"]');
+    if (article && isQuotedTweetArticle(article)) {
+      return article;
+    }
+    return null;
+  };
+
   const isShowMoreAnchor = (a) => {
     if (!a) return false;
     if (a.getAttribute('data-testid') === 'tweet-text-show-more-link') return true;
@@ -611,6 +817,7 @@ function embedFrameEnhancementRuntime(win, doc) {
   const isReadRepliesButtonAnchor = (a) => {
     if (!a) return false;
     if (a.getAttribute('data-theysay-allow-open') === 'replies-btn') return true;
+    if (findQuotedTweetContainer(a)) return false;
     if (a.closest('[data-testid="tweetText"]')) return false;
     if (a.querySelector('svg')) return false;
 
@@ -629,7 +836,12 @@ function embedFrameEnhancementRuntime(win, doc) {
     }
 
     const article = a.closest('article[role="article"]');
-    if (article && article.lastElementChild && article.lastElementChild.contains(a)) {
+    if (
+      article &&
+      !isQuotedTweetArticle(article) &&
+      article.lastElementChild &&
+      article.lastElementChild.contains(a)
+    ) {
       return true;
     }
 
@@ -817,6 +1029,22 @@ function embedFrameEnhancementRuntime(win, doc) {
     injectStyle();
     neutralizeCardContainerClick();
 
+    const articles = doc.querySelectorAll('article[role="article"]');
+    articles.forEach((art) => {
+      if (isQuotedTweetArticle(art)) {
+        const quotedUrl = resolveQuotedTweetUrl(art) || '1';
+        art.setAttribute('data-theysay-quoted-tweet', quotedUrl);
+        if (
+          art.parentElement &&
+          art.parentElement !== doc.body &&
+          !art.parentElement.matches('article[role="article"]') &&
+          getFiberSourceFiles(art.parentElement).some((s) => s.includes('QuotedTweet/'))
+        ) {
+          art.parentElement.setAttribute('data-theysay-quoted-tweet', quotedUrl);
+        }
+      }
+    });
+
     const anchors = doc.querySelectorAll('a');
     anchors.forEach((a) => {
       if (isShowMoreAnchor(a)) {
@@ -885,7 +1113,22 @@ function embedFrameEnhancementRuntime(win, doc) {
       return;
     }
 
-    // 2. Check Top-right X logo or Bottom "Read X replies" button
+    // 2. Check Quoted Tweet card — clicking anywhere inside the quoted tweet opens the original quoted post
+    const quotedContainer = findQuotedTweetContainer(target);
+    if (quotedContainer) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (e.type === 'click' || (e.type === 'auxclick' && e.button === 1)) {
+        const quotedHref = resolveQuotedTweetUrl(quotedContainer);
+        if (quotedHref) {
+          openCleanExternalUrl(quotedHref);
+        }
+      }
+      return;
+    }
+
+    // 3. Check Top-right X logo or Bottom "Read X replies" button
     const anchor = target.closest('a');
     if (anchor && (isTopRightXLogoAnchor(anchor) || isReadRepliesButtonAnchor(anchor))) {
       e.preventDefault();
@@ -900,7 +1143,7 @@ function embedFrameEnhancementRuntime(win, doc) {
       return;
     }
 
-    // 3. Allow native video playback controls inside embedded video players
+    // 4. Allow native video playback controls inside embedded video players
     if (
       target.closest('video') ||
       target.closest('[data-testid="playButton"]') ||
@@ -910,8 +1153,8 @@ function embedFrameEnhancementRuntime(win, doc) {
       return;
     }
 
-    // 4. Block all other clicks (text body, hashtags/cashtags/mentions/links in text,
-    //    card background, author header, timestamp, quoted tweet, action icons) from
+    // 5. Block all other clicks (text body, hashtags/cashtags/mentions/links in text,
+    //    card background, author header, timestamp, action icons) from
     //    opening external browser windows.
     e.preventDefault();
     e.stopPropagation();
