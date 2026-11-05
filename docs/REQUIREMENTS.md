@@ -124,7 +124,7 @@ npm run dist:linux      # Linux x64 (.AppImage & .deb)
 ```
 TheySay/
 ├── .github/workflows/
-│   └── windows-integration.yml # GitHub Actions CI workflow for Windows Electron integration tests
+│   └── windows-integration.yml # GitHub Actions CI workflow for macOS, Windows & Linux Electron integration tests
 ├── assets/
 │   ├── icon.icns       # macOS application icon bundle
 │   ├── icon.png        # High-resolution (1024x1024) application icon
