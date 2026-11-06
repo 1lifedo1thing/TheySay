@@ -128,7 +128,7 @@ const TOGGLE_SELECT_ROWS = [
     titleI18n: 'settings.autoUpdateTitle',
     titleText: '版本自动更新',
     subtitleId: 'setting-update-status-text',
-    subtitleText: '当前 v1.0.2 · GitHub Releases',
+    subtitleText: '当前 v1.0.3 · GitHub Releases',
     options: [
       { value: 'true', i18n: 'settings.optionOnDefault', label: '开启 (默认)' },
       { value: 'false', i18n: 'settings.optionOff', label: '关闭' }
