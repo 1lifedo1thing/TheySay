@@ -25,6 +25,8 @@ const {
   getTickerBgColor,
   getLanguage,
   saveLanguage,
+  getTargetCacheEntry,
+  saveTargetCacheEntry,
   buildProfileData
 } = require('./src/core/storage');
 const {
@@ -301,6 +303,28 @@ async function handleImportProfile() {
           }
           if (typeof item.isMuted === 'boolean' && !Array.isArray(settings.mutedSlots)) {
             nextMuted[targetIdx] = item.isMuted;
+          }
+          if (rawVal && (Array.isArray(item.pinnedKeys) || Array.isArray(item.pinnedPosts))) {
+            const existingTarget = getTargetCacheEntry(rawVal, item.source) || {};
+            const basePosts = Array.isArray(existingTarget.posts) && existingTarget.posts.length > 0
+              ? existingTarget.posts
+              : (Array.isArray(item.pinnedPosts) ? item.pinnedPosts : []);
+            if (basePosts.length > 0) {
+              saveTargetCacheEntry(rawVal, {
+                ...existingTarget,
+                handle: rawVal,
+                source: item.source || existingTarget.source,
+                displayName: existingTarget.displayName || item.displayName || '',
+                userHandle: existingTarget.userHandle || item.userHandle || '',
+                sourceTitle: existingTarget.sourceTitle || item.sourceTitle || '',
+                sourceSubtitle: existingTarget.sourceSubtitle || item.sourceSubtitle || '',
+                avatarUrl: existingTarget.avatarUrl || item.avatarUrl || '',
+                posts: basePosts,
+                pinnedKeys: Array.isArray(item.pinnedKeys) ? item.pinnedKeys : [],
+                pinnedPosts: Array.isArray(item.pinnedPosts) ? item.pinnedPosts : [],
+                pinnedCollapsed: Boolean(item.pinnedCollapsed)
+              });
+            }
           }
         }
       });

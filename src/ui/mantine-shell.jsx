@@ -13,6 +13,7 @@ import { SlotMuteIcon, SlotExpandIcon } from './components/slot/SlotIcons';
 import { SlotSourceDropdownContent } from './components/slot/SlotSourceDropdown';
 import { SlotSizeMenuContent } from './components/slot/SlotSizeMenu';
 import { PostTimeline } from './components/slot/PostBubble';
+import { SlotPinnedBar } from './components/slot/SlotPinnedBar';
 import { PostPopupOverlay } from './components/popup/PostPopupOverlay';
 import { TwitterFallbackCard } from './components/popup/TwitterFallbackCard';
 import { DiscordPopupCard } from './components/popup/DiscordPopupCard';
@@ -180,6 +181,25 @@ export function clearMantineSlotPosts(postsListEl) {
     });
   } else {
     postsListEl.innerHTML = '';
+  }
+}
+
+export function renderMantineSlotPinnedPosts(pinnedContainerEl, props) {
+  timelineRenderSeq += 1;
+  renderInSubtreeRoot(
+    pinnedContainerEl,
+    <SlotPinnedBar key={timelineRenderSeq} {...props} />
+  );
+}
+
+export function clearMantineSlotPinnedPosts(pinnedContainerEl) {
+  if (!pinnedContainerEl) return;
+  if (elementRoots.has(pinnedContainerEl)) {
+    flushSync(() => {
+      elementRoots.get(pinnedContainerEl).render(null);
+    });
+  } else {
+    pinnedContainerEl.innerHTML = '';
   }
 }
 

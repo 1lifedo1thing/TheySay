@@ -14,6 +14,13 @@ export function SlotCard({ index, labels = {} }) {
     >
       <SlotHeader index={index} labels={labels} />
 
+      {/* Pinned Posts Area Fixed Below Header */}
+      <Box
+        className="slot-pinned-container"
+        id={`slot-pinned-${index}`}
+        style={{ display: 'none' }}
+      />
+
       {/* Scrollable Content Viewport */}
       <Box className="slot-content-container" id={`slot-content-${index}`}>
         <Box className="slot-placeholder" id={`slot-placeholder-${index}`}>

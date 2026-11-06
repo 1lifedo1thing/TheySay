@@ -170,12 +170,25 @@ function mergeCacheEntryReadState(prevEntry, nextEntry) {
       })
     : nextPosts;
 
+  const pinnedKeys = Array.isArray(nextEntry.pinnedKeys)
+    ? nextEntry.pinnedKeys
+    : (prevEntry && Array.isArray(prevEntry.pinnedKeys) ? prevEntry.pinnedKeys : []);
+  const pinnedPosts = Array.isArray(nextEntry.pinnedPosts)
+    ? nextEntry.pinnedPosts
+    : (prevEntry && Array.isArray(prevEntry.pinnedPosts) ? prevEntry.pinnedPosts : []);
+  const pinnedCollapsed = typeof nextEntry.pinnedCollapsed === 'boolean'
+    ? nextEntry.pinnedCollapsed
+    : Boolean(prevEntry && prevEntry.pinnedCollapsed);
+
   const result = {
     ...nextEntry,
     posts: mergedPosts,
     readKeys: Array.from(readSet).slice(-MAX_CACHE_TRACKED_KEYS),
     knownKeys: Array.from(knownSet).slice(-MAX_CACHE_TRACKED_KEYS),
-    maxReadTimestamp: maxReadTs
+    maxReadTimestamp: maxReadTs,
+    pinnedKeys,
+    pinnedPosts,
+    pinnedCollapsed
   };
   delete result.tweets;
   return result;
@@ -761,6 +774,15 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
     const sourceTitle = (slot && slot.sourceTitle) || targetCached.sourceTitle || '';
     const sourceSubtitle = (slot && slot.sourceSubtitle) || targetCached.sourceSubtitle || '';
     const avatarUrl = (slot && slot.avatarImg && slot.avatarImg.src) || targetCached.avatarUrl || '';
+    const pinnedKeys = slot && slot.pinnedKeys instanceof Set
+      ? Array.from(slot.pinnedKeys)
+      : (Array.isArray(targetCached.pinnedKeys) ? targetCached.pinnedKeys : []);
+    const pinnedPosts = slot && Array.isArray(slot.pinnedPosts) && slot.pinnedPosts.length > 0
+      ? slot.pinnedPosts
+      : (Array.isArray(targetCached.pinnedPosts) ? targetCached.pinnedPosts : []);
+    const pinnedCollapsed = slot && typeof slot.pinnedCollapsed === 'boolean'
+      ? slot.pinnedCollapsed
+      : Boolean(targetCached.pinnedCollapsed);
 
     handles.push(handle);
     mutedSlots.push(isMuted);
@@ -775,6 +797,9 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
       sourceTitle,
       sourceSubtitle,
       avatarUrl,
+      pinnedKeys,
+      pinnedPosts,
+      pinnedCollapsed,
       grid: layoutBySlot[i] || null
     };
     slotsData.push(slotEntry);
@@ -789,7 +814,10 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
         sourceTitle,
         sourceSubtitle,
         isMuted,
-        avatarUrl
+        avatarUrl,
+        pinnedKeys,
+        pinnedPosts,
+        pinnedCollapsed
       });
     }
   }

@@ -18,7 +18,7 @@ Download the latest installer for **macOS**, **Windows**, or **Linux** from **[G
 
 - **One Screen for Every Account (`1×1` to `4×4` Layouts)**: Watch real-time updates from multiple followed accounts side by side in a single view. Choose any grid layout from `1×1` up to `4×4`, freely drag and resize cards to spotlight key feeds, and type any username to quickly add accounts across X and Threads—or paste a link to follow any public or private Discord channel.
 
-- **Distraction-Free Chat-Style Reading**: Updates appear in clean, chronological chat bubbles instead of cluttered social media timelines. Web links automatically display readable page titles, images sit neatly beside the text, and clicking any message opens the full post, quoted thread, or high-resolution media in a focused popup reader.
+- **Distraction-Free Chat-Style Reading & Pinning**: Updates appear in clean, chronological chat bubbles instead of cluttered social media timelines. Web links automatically display readable page titles, images sit neatly beside the text, clicking any message opens the full post, quoted thread, or high-resolution media in a focused popup reader, and you can pin one or multiple key posts right below any card's header for quick reference.
 
 - **Built for Market & Tech Watchers**: Automatically recognizes and highlights US stock, ETF, and crypto tickers (such as `$NVDA`, `$TSLA`, `$BTC`) with customizable badge colors so market-moving mentions stand out at a glance. Want less noise? Add mute keywords or phrases in Settings to hide unwanted topics automatically.
 

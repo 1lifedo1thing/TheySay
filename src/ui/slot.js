@@ -5,6 +5,8 @@ const { escapeHtml, showToast, formatFetchTime, stripDiscordEditedText, isUnavat
 const {
   getPostId,
   getPostKey,
+  getPostAllKeys,
+  isPostUserPinned,
   cleanInlineEntityNewlines,
   stripEmptyLines,
   processAndSortPosts,
@@ -78,7 +80,9 @@ const {
   clearMantineSlotSourceDropdown,
   renderMantineSlotSizeMenu,
   renderMantineSlotPosts,
-  clearMantineSlotPosts
+  clearMantineSlotPosts,
+  renderMantineSlotPinnedPosts,
+  clearMantineSlotPinnedPosts
 } = require('./dist/mantine-shell');
 
 function createSlotWidget(index) {
@@ -457,12 +461,29 @@ function markSlotPostsAsRead(slot, slots = []) {
   return updated;
 }
 
+function syncSlotPinnedLayoutOffset(slot) {
+  if (!slot || !slot.contentContainer) return;
+  const pinnedEl = slot.pinnedContainer;
+  if (!pinnedEl || pinnedEl.style.display === 'none') {
+    slot.contentContainer.style.paddingTop = '';
+    if (slot.card) slot.card.classList.remove('has-pinned-posts');
+    return;
+  }
+  if (slot.card) slot.card.classList.add('has-pinned-posts');
+  const pinnedH = pinnedEl.offsetHeight || 0;
+  slot.contentContainer.style.paddingTop = pinnedH > 0 ? `${32 + pinnedH}px` : '';
+}
+
 function showSlotLoading(slot, text) {
   slot.placeholder.style.display = 'none';
   slot.loading.style.display = 'flex';
   slot.loadingText.innerText = text;
   slot.error.style.display = 'none';
   slot.postsList.style.display = 'none';
+  if (slot.pinnedContainer) {
+    slot.pinnedContainer.style.display = 'none';
+  }
+  syncSlotPinnedLayoutOffset(slot);
 }
 
 function showSlotError(slot, errorMsg) {
@@ -471,6 +492,10 @@ function showSlotError(slot, errorMsg) {
   slot.error.style.display = 'block';
   slot.error.innerHTML = `⚠️ ${errorMsg}`;
   slot.postsList.style.display = 'none';
+  if (slot.pinnedContainer) {
+    slot.pinnedContainer.style.display = 'none';
+  }
+  syncSlotPinnedLayoutOffset(slot);
   updateSlotExpiredUI(slot);
 }
 
@@ -755,13 +780,17 @@ function buildDiscordBubbleData(msg, { showAuthor }) {
       }
     : null;
 
+  const fullFormattedHtml = effectiveText
+    ? formatTextWithTickers(effectiveText, effectiveText, { linkTitles: msg.linkTitles })
+    : '';
   const text = effectiveText
     ? {
         isLong,
         fullText: effectiveText,
+        fullHtml: fullFormattedHtml,
         html: isLong
           ? renderTruncatedTextHtml(previewText.trimEnd(), effectiveText, previewTitles)
-          : formatTextWithTickers(effectiveText, effectiveText, { linkTitles: msg.linkTitles })
+          : fullFormattedHtml
       }
     : null;
 
@@ -809,13 +838,17 @@ function buildPostBubbleData(post) {
     });
   }
 
+  const fullFormattedHtml = effectiveText
+    ? formatTextWithTickers(effectiveText, effectiveText, { linkTitles: post.linkTitles })
+    : '';
   const text = effectiveText
     ? {
         isLong,
         fullText: effectiveText,
+        fullHtml: fullFormattedHtml,
         html: isLong
           ? renderTruncatedTextHtml(previewText.trimEnd(), effectiveText, previewTitles)
-          : formatTextWithTickers(effectiveText, effectiveText, { linkTitles: post.linkTitles })
+          : fullFormattedHtml
       }
     : null;
 
@@ -831,20 +864,191 @@ function buildPostBubbleData(post) {
   };
 }
 
+function getSlotRenderMeta(slot, handle) {
+  const isDiscord = isDiscordSlot(slot);
+  const isThreads = isThreadsSlot(slot);
+  if (isDiscord) {
+    return {
+      source: SOURCE_DISCORD,
+      title: normalizeDiscordChannelFallback(slot.sourceTitle || t('slot.defaultDiscordChannel')),
+      subtitle: slot.sourceSubtitle || ''
+    };
+  }
+  return {
+    source: isThreads ? SOURCE_THREADS : 'twitter',
+    displayName: slot.authorName ? slot.authorName.innerText : '',
+    userHandle: slot.authorHandle ? (slot.authorHandle.textContent || slot.authorHandle.innerText) : `@${handle}`
+  };
+}
+
+function reRenderSlotCurrentState(slot, slots = registeredSlots, { preserveScroll = true } = {}) {
+  if (!slot) return;
+  const handle = slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '');
+  const avatarUrl = (slot.avatarImg && slot.avatarImg.src) || null;
+  const meta = getSlotRenderMeta(slot, handle);
+  renderSlotPosts(slot, slot.loadedPosts || [], handle, avatarUrl, slots, meta, { preserveScroll });
+  archiveSlotScrapedData(slot);
+}
+
+function pinSlotPost(slot, post, slots = registeredSlots) {
+  if (!slot || !post) return false;
+  ensureSlotReadTracking(slot);
+  const allKeys = getPostAllKeys(post);
+  if (allKeys.length === 0) return false;
+
+  post.isUnread = false;
+  if (Array.isArray(post.mergedPosts)) {
+    post.mergedPosts.forEach(mp => {
+      if (mp) mp.isUnread = false;
+    });
+  }
+  const keySet = new Set(allKeys);
+  if (Array.isArray(slot.loadedPosts)) {
+    slot.loadedPosts.forEach(p => {
+      if (p && keySet.has(getPostKey(p))) {
+        p.isUnread = false;
+      }
+    });
+  }
+
+  allKeys.forEach(k => slot.pinnedKeys.add(k));
+  const alreadyInPinnedPosts = slot.pinnedPosts.some(pp =>
+    getPostAllKeys(pp).some(k => keySet.has(k))
+  );
+  if (!alreadyInPinnedPosts) {
+    slot.pinnedPosts.push(post);
+  }
+  slot._pinStateInitializedFromCache = true;
+  reRenderSlotCurrentState(slot, slots, { preserveScroll: true });
+  return true;
+}
+
+function unpinSlotPost(slot, post, slots = registeredSlots) {
+  if (!slot || !post) return false;
+  ensureSlotReadTracking(slot);
+  const allKeys = getPostAllKeys(post);
+  if (allKeys.length === 0) return false;
+
+  const keySet = new Set(allKeys);
+  allKeys.forEach(k => slot.pinnedKeys.delete(k));
+  slot.pinnedPosts = slot.pinnedPosts.filter(
+    pp => !getPostAllKeys(pp).some(k => keySet.has(k))
+  );
+  if (slot.pinnedPosts.length === 0) {
+    slot.pinnedCollapsed = false;
+  }
+
+  const constituentPosts =
+    post.isMerged && Array.isArray(post.mergedPosts) && post.mergedPosts.length > 0
+      ? post.mergedPosts
+      : [post];
+  if (!Array.isArray(slot.loadedPosts)) {
+    slot.loadedPosts = [];
+  }
+  const existingLoadedKeys = new Set(slot.loadedPosts.map(p => getPostKey(p)).filter(Boolean));
+  let addedToLoaded = false;
+  for (const cp of constituentPosts) {
+    const ck = getPostKey(cp);
+    if (cp && ck && !existingLoadedKeys.has(ck)) {
+      slot.loadedPosts.push(cp);
+      existingLoadedKeys.add(ck);
+      addedToLoaded = true;
+    }
+  }
+  if (addedToLoaded) {
+    slot.loadedPosts = processAndSortPosts(slot.loadedPosts);
+  }
+
+  slot._pinStateInitializedFromCache = true;
+  reRenderSlotCurrentState(slot, slots, { preserveScroll: true });
+  return true;
+}
+
+function togglePinSlotPost(slot, post, slots = registeredSlots) {
+  if (!slot || !post) return false;
+  if (isPostUserPinned(slot, post)) {
+    return unpinSlotPost(slot, post, slots);
+  }
+  return pinSlotPost(slot, post, slots);
+}
+
+function toggleSlotPinnedCollapse(slot, slots = registeredSlots) {
+  if (!slot) return false;
+  ensureSlotReadTracking(slot);
+  slot.pinnedCollapsed = !slot.pinnedCollapsed;
+  slot._pinStateInitializedFromCache = true;
+  reRenderSlotCurrentState(slot, slots, { preserveScroll: true });
+  return slot.pinnedCollapsed;
+}
+
 /**
  * Renders a slot's feed.
  *
  * `meta` is only supplied by non-Twitter sources; when it is omitted the header
  * keeps deriving its identity from the first post, exactly as before.
  */
-function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta = null) {
+function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta = null, options = {}) {
+  const prevScrollTop = slot.contentContainer ? slot.contentContainer.scrollTop : 0;
+
   slot.placeholder.style.display = 'none';
   slot.loading.style.display = 'none';
   slot.error.style.display = 'none';
   slot.postsList.style.display = 'flex';
 
-  const rawPosts = Array.isArray(posts) ? posts : [];
+  let rawPosts = Array.isArray(posts) ? [...posts] : [];
   ensureSlotReadTracking(slot);
+
+  const rawByKey = new Map();
+  rawPosts.forEach((p) => {
+    const k = getPostKey(p);
+    if (k) rawByKey.set(k, p);
+  });
+
+  // Synchronize pinnedPosts with rawPosts so backfilled images / linkTitles stay fresh
+  // and any pinned posts not currently in rawPosts are preserved in loadedPosts
+  if (slot.pinnedKeys && slot.pinnedKeys.size > 0) {
+    const coveredPinnedKeys = new Set();
+    let addedArchivedPinned = false;
+    slot.pinnedPosts = (Array.isArray(slot.pinnedPosts) ? slot.pinnedPosts : []).map((pp) => {
+      if (!pp) return pp;
+      getPostAllKeys(pp).forEach(k => coveredPinnedKeys.add(k));
+      const pk = getPostKey(pp);
+      const live = pk ? rawByKey.get(pk) : null;
+      if (live && !pp.isMerged) {
+        return {
+          ...pp,
+          ...live,
+          images: (Array.isArray(live.images) && live.images.length > 0) ? live.images : pp.images,
+          linkTitles: (live.linkTitles || pp.linkTitles)
+            ? Object.assign({}, pp.linkTitles || {}, live.linkTitles || {})
+            : undefined
+        };
+      }
+      const constituent = (pp.isMerged && Array.isArray(pp.mergedPosts)) ? pp.mergedPosts : [pp];
+      constituent.forEach((cp) => {
+        const ck = getPostKey(cp);
+        if (cp && ck && !rawByKey.has(ck)) {
+          rawPosts.push(cp);
+          rawByKey.set(ck, cp);
+          addedArchivedPinned = true;
+        }
+      });
+      return pp;
+    });
+
+    for (const pk of slot.pinnedKeys) {
+      if (!coveredPinnedKeys.has(pk) && rawByKey.has(pk)) {
+        const matched = rawByKey.get(pk);
+        slot.pinnedPosts.push(matched);
+        getPostAllKeys(matched).forEach(k => coveredPinnedKeys.add(k));
+      }
+    }
+
+    if (addedArchivedPinned) {
+      rawPosts = processAndSortPosts(rawPosts);
+    }
+  }
+
   recordSlotReadPosts(slot, rawPosts);
   rawPosts.forEach((p) => {
     const k = getPostKey(p);
@@ -852,7 +1056,8 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
   });
 
   const firstPost = rawPosts[0] || {};
-  posts = filterPostsByKeywords(rawPosts, getFilterKeywords());
+  const activeKeywords = getFilterKeywords();
+  posts = filterPostsByKeywords(rawPosts, activeKeywords);
   slot.loadedPosts = posts;
 
   const isDiscord = !!(meta && meta.source === SOURCE_DISCORD);
@@ -1040,7 +1245,8 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
     ? posts
     : posts.filter(p => !isMemberOnlyPost(p));
 
-  displayPosts.forEach((p) => {
+  const hydratePostIdentity = (p) => {
+    if (!p) return;
     if (!p.source && slot.source) {
       p.source = slot.source;
     }
@@ -1051,9 +1257,84 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
       if (!p.displayName && displayName) p.displayName = displayName;
       if (!p.userHandle && userHandle) p.userHandle = userHandle;
     }
+  };
+
+  displayPosts.forEach(hydratePostIdentity);
+
+  const linkTitle = isDiscord
+    ? t('slot.openOriginalDiscord')
+    : (isThreads ? t('slot.openOriginalThreads') : t('slot.openOriginalPost'));
+  const pinTitle = t('slot.pinPostTitle');
+  const unpinTitle = t('slot.unpinPostTitle');
+
+  // Build pinned items for the header-below pinned bar
+  const visiblePinnedPosts = (Array.isArray(slot.pinnedPosts) ? slot.pinnedPosts : []).filter((pp) => {
+    if (!pp || !isPostUserPinned(slot, pp)) return false;
+    if (doesPostMatchFilterKeywords(pp, activeKeywords)) return false;
+    if (!showMemberOnly && !isDiscord && !isThreads && isMemberOnlyPost(pp)) return false;
+    return true;
   });
 
-  const groupedDisplayPosts = groupSameMinutePosts(displayPosts, { isDiscord });
+  const pinnedItems = visiblePinnedPosts.map((post, idx) => {
+    hydratePostIdentity(post);
+    const timeDisplay = formatTelegramTime(post);
+    const body = isDiscord
+      ? buildDiscordBubbleData(post, { showAuthor: true })
+      : buildPostBubbleData(post);
+    const images = Array.isArray(post.images) ? post.images.filter(Boolean) : [];
+    const hasMedia = images.length > 0;
+    const isMediaOnly =
+      hasMedia &&
+      !body.text &&
+      !body.reply &&
+      (!Array.isArray(body.attachments) || body.attachments.length === 0);
+
+    return {
+      key: `pinned-${getPostKey(post) || idx}-${idx}`,
+      post,
+      isDiscord,
+      isThreads,
+      isUnread: Boolean(post.isUnread),
+      isMemberOnly: isMemberOnlyPost(post),
+      hasPopup: shouldShowPostPopup(post),
+      hasMedia,
+      isMediaOnly,
+      images,
+      imageAlt: t('slot.imageAlt'),
+      timeDisplay,
+      linkUrl: post.url || '',
+      linkTitle,
+      unpinTitle,
+      body
+    };
+  });
+
+  if (slot.pinnedContainer) {
+    if (pinnedItems.length > 0) {
+      slot.pinnedContainer.style.display = 'flex';
+      renderMantineSlotPinnedPosts(slot.pinnedContainer, {
+        items: pinnedItems,
+        isCollapsed: Boolean(slot.pinnedCollapsed),
+        collapsedCountLabel: t('slot.pinnedCountLabel', { count: pinnedItems.length }),
+        collapseTitle: t('slot.pinnedCollapseTitle'),
+        expandTitle: t('slot.pinnedExpandTitle'),
+        onMarkRead: markBubbleAsRead,
+        onOpenExternal: (url) => shell.openExternal(url),
+        onPrefetch: (p) => prefetchPost(p, { priority: true }),
+        onOpenPopup: (p) => openPostPopup(p),
+        onUnpin: (p) => unpinSlotPost(slot, p, slots),
+        onToggleCollapse: () => toggleSlotPinnedCollapse(slot, slots)
+      });
+    } else {
+      slot.pinnedContainer.style.display = 'none';
+      clearMantineSlotPinnedPosts(slot.pinnedContainer);
+    }
+    syncSlotPinnedLayoutOffset(slot);
+  }
+
+  // Filter user-pinned posts out of the chronological timeline below
+  const unpinnedDisplayPosts = displayPosts.filter(p => !isPostUserPinned(slot, p));
+  const groupedDisplayPosts = groupSameMinutePosts(unpinnedDisplayPosts, { isDiscord });
 
   let lastDateKey = null;
   let lastAuthorName = null;
@@ -1071,9 +1352,6 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
     }
 
     const timeDisplay = formatTelegramTime(post);
-    const linkTitle = isDiscord
-      ? t('slot.openOriginalDiscord')
-      : (isThreads ? t('slot.openOriginalThreads') : t('slot.openOriginalPost'));
 
     let body;
     let isGrouped = false;
@@ -1111,6 +1389,7 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
       timeDisplay,
       linkUrl: post.url || '',
       linkTitle,
+      pinTitle,
       body
     };
   });
@@ -1127,19 +1406,26 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
     onMarkRead: markBubbleAsRead,
     onOpenExternal: (url) => shell.openExternal(url),
     onPrefetch: (p) => prefetchPost(p, { priority: true }),
-    onOpenPopup: (p) => openPostPopup(p)
+    onOpenPopup: (p) => openPostPopup(p),
+    onTogglePin: (p) => togglePinSlotPost(slot, p, slots)
   });
 
   slot.postsList.querySelectorAll('.im-bubble').forEach((bubble) => {
     expandBubbleLastLine(bubble);
   });
 
-  // Auto-scroll to bottom to show the latest messages (Telegram style)
-  requestAnimationFrame(() => {
+  if (options && options.preserveScroll) {
     if (slot.contentContainer) {
-      slot.contentContainer.scrollTop = slot.contentContainer.scrollHeight;
+      slot.contentContainer.scrollTop = prevScrollTop;
     }
-  });
+  } else {
+    // Auto-scroll to bottom to show the latest messages (Telegram style)
+    requestAnimationFrame(() => {
+      if (slot.contentContainer) {
+        slot.contentContainer.scrollTop = slot.contentContainer.scrollHeight;
+      }
+    });
+  }
 
   persistSlot(slot, { handle, displayName, userHandle, posts, avatarUrl: finalAvatar }, slots);
 
@@ -1227,11 +1513,30 @@ function refreshSlotBubbleTextsWithTitles(slot) {
       textContentEl.innerHTML = formatTextWithTickers(effectiveText, effectiveText, { linkTitles: post.linkTitles });
     }
   });
+
+  if (slot.pinnedContainer && slot.pinnedContainer.style.display !== 'none') {
+    const pinnedEls = slot.pinnedContainer.querySelectorAll('.slot-pinned-item');
+    pinnedEls.forEach((pinnedEl) => {
+      const post = pinnedEl._post;
+      if (!post) return;
+      const textContentEl = pinnedEl.querySelector('.im-text-content');
+      if (!textContentEl) return;
+      const rawText = isDiscord
+        ? stripEmptyLines(normalizeMediaOnlyText(stripDiscordEditedText(post.text || '')))
+        : stripEmptyLines(normalizeMediaOnlyText((post.text || '').trim()));
+      const singleLineRaw = rawText.replace(/[\r\n]+/g, ' ').trim();
+      if (singleLineRaw) {
+        textContentEl.innerHTML = formatTextWithTickers(singleLineRaw, singleLineRaw, { linkTitles: post.linkTitles });
+      }
+    });
+  }
 }
 
 async function resolveSlotUrlTitles(slot, slots = []) {
   if (!slot || slot._isResolvingUrlTitles) return;
-  const posts = Array.isArray(slot.loadedPosts) ? slot.loadedPosts : [];
+  const loaded = Array.isArray(slot.loadedPosts) ? slot.loadedPosts : [];
+  const pinnedList = slot.pinnedPosts instanceof Map ? Array.from(slot.pinnedPosts.values()) : [];
+  const posts = loaded.concat(pinnedList);
   if (posts.length === 0) return;
 
   const urlToPosts = new Map();
@@ -1495,6 +1800,11 @@ function resetSlotForNewTarget(slot, newRawInput = '', slots = []) {
   slot.lastFetchedAt = null;
   clearMantineSlotPosts(slot.postsList);
   slot.postsList.style.display = 'none';
+  if (slot.pinnedContainer) {
+    clearMantineSlotPinnedPosts(slot.pinnedContainer);
+    slot.pinnedContainer.style.display = 'none';
+  }
+  syncSlotPinnedLayoutOffset(slot);
   slot.loading.style.display = 'none';
   slot.error.style.display = 'none';
   slot.placeholder.style.display = 'flex';
@@ -1527,6 +1837,11 @@ function clearSlot(slot, { slots } = {}) {
   slot.sourceSubtitle = '';
   clearMantineSlotPosts(slot.postsList);
   slot.postsList.style.display = 'none';
+  if (slot.pinnedContainer) {
+    clearMantineSlotPinnedPosts(slot.pinnedContainer);
+    slot.pinnedContainer.style.display = 'none';
+  }
+  syncSlotPinnedLayoutOffset(slot);
   slot.loading.style.display = 'none';
   slot.error.style.display = 'none';
   slot.placeholder.style.display = 'flex';
@@ -1779,6 +2094,14 @@ function bindSlotEvents(slot, { slots, onFetch, onResize, getGridDimensions }) {
     });
   }
 
+  if (slot.pinnedContainer) {
+    slot.pinnedContainer.addEventListener('mouseenter', () => {
+      if (slot.card) {
+        slot.card.classList.remove('is-header-hidden');
+      }
+    });
+  }
+
   if (slot.contentContainer) {
     slot.contentContainer.addEventListener('mouseenter', () => {
       if (!slot.card) return;
@@ -1985,6 +2308,7 @@ function initSlotsRegistry({ slotsCount = MAX_SLOTS, bgWebviewsContainer, onFetc
       element: el,
       card: el.querySelector(`#slot-card-${i}`),
       header: el.querySelector('.slot-header'),
+      pinnedContainer: el.querySelector(`#slot-pinned-${i}`),
       bgWebview: getOrCreateSlotWebview(i, bgWebviewsContainer, slots),
       avatarContainer: el.querySelector(`#slot-avatar-${i}`),
       avatarImg: el.querySelector(`#slot-avatar-img-${i}`),
@@ -2385,6 +2709,11 @@ module.exports = {
   syncAppUnreadBadge,
   updateSlotUnreadBadge,
   markSlotPostsAsRead,
+  syncSlotPinnedLayoutOffset,
+  pinSlotPost,
+  unpinSlotPost,
+  togglePinSlotPost,
+  toggleSlotPinnedCollapse,
   showSlotLoading,
   showSlotError,
   renderSlotPosts,

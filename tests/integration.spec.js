@@ -2418,6 +2418,169 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
       expect.arrayContaining(['app', 'csi', 'loadTimes', 'runtime'])
     );
   });
+
+  test('24. Pin Post feature pins one or multiple posts below header, removes from timeline, supports collapse/popup/persistence, and restores on unpin', async () => {
+    await page.evaluate(
+      ({ handlesKey, cacheKey, onboardingKey }) => {
+        localStorage.setItem(onboardingKey, '1');
+        localStorage.removeItem('theysay_target_cache');
+        const handles = ['threads:@zuck', '', '', ''];
+        while (handles.length < 16) handles.push('');
+        localStorage.setItem(handlesKey, JSON.stringify(handles));
+
+        const cache = {
+          0: {
+            handle: 'zuck',
+            source: 'threads',
+            displayName: 'Mark Zuckerberg',
+            userHandle: 'threads:@zuck',
+            avatarUrl: '',
+            lastFetchedAt: Date.now(),
+            posts: [
+              {
+                id: 'th_post_1',
+                text: 'First chronological post about Llama 4 open weights release',
+                datetime: '2026-10-26T09:00:00.000Z',
+                time: '2026-10-26T09:00:00.000Z',
+                displayName: 'Mark Zuckerberg',
+                userHandle: '@zuck',
+                url: 'https://www.threads.com/@zuck/post/th_post_1',
+                isPinned: false,
+                isUnread: false,
+                images: []
+              },
+              {
+                id: 'th_post_2',
+                text: 'Second chronological post in the middle of the timeline',
+                datetime: '2026-10-26T10:00:00.000Z',
+                time: '2026-10-26T10:00:00.000Z',
+                displayName: 'Mark Zuckerberg',
+                userHandle: '@zuck',
+                url: 'https://www.threads.com/@zuck/post/th_post_2',
+                isPinned: true,
+                isUnread: false,
+                images: []
+              },
+              {
+                id: 'th_post_3',
+                text: 'Third chronological post with $META update at the bottom',
+                datetime: '2026-10-26T11:00:00.000Z',
+                time: '2026-10-26T11:00:00.000Z',
+                displayName: 'Mark Zuckerberg',
+                userHandle: '@zuck',
+                url: 'https://www.threads.com/@zuck/post/th_post_3',
+                isPinned: false,
+                isUnread: false,
+                images: []
+              }
+            ]
+          }
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(cache));
+      },
+      {
+        handlesKey: STORAGE_HANDLES_KEY,
+        cacheKey: STORAGE_CACHE_KEY,
+        onboardingKey: STORAGE_ONBOARDING_COMPLETED_KEY
+      }
+    );
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const pinnedContainer = page.locator('#slot-pinned-0');
+    const timelineBubbles = page.locator('#slot-posts-list-0 .im-bubble');
+
+    // Author's own isPinned:true post must NOT be auto-placed in the user pinned bar
+    await expect(pinnedContainer).toBeHidden();
+    await expect(timelineBubbles).toHaveCount(3);
+    await expect(timelineBubbles.nth(0).locator('.im-text-content')).toContainText('First chronological post');
+    await expect(timelineBubbles.nth(1).locator('.im-text-content')).toContainText('Second chronological post');
+    await expect(timelineBubbles.nth(2).locator('.im-text-content')).toContainText('Third chronological post');
+
+    // Pin the 1st and 3rd posts via the hover pin button (.im-btn-pin)
+    await timelineBubbles.nth(0).locator('.im-btn-pin').dispatchEvent('click');
+    await expect(pinnedContainer).toBeVisible();
+    await expect(pinnedContainer.locator('.slot-pinned-item')).toHaveCount(1);
+    await expect(timelineBubbles).toHaveCount(2);
+
+    // Pin the remaining last post ("Third chronological post")
+    await timelineBubbles.nth(1).locator('.im-btn-pin').dispatchEvent('click');
+    await expect(pinnedContainer.locator('.slot-pinned-item')).toHaveCount(2);
+    await expect(timelineBubbles).toHaveCount(1);
+    await expect(timelineBubbles.nth(0).locator('.im-text-content')).toContainText('Second chronological post');
+
+    // Verify geometry & bubble color inheritance: pinned bar is positioned right below the 28px header,
+    // content padding-top increased, and pinned item background color matches chat bubble background color
+    const layoutInfo = await page.evaluate(() => {
+      const card = document.getElementById('slot-card-0');
+      const header = card.querySelector('.slot-header');
+      const pinned = document.getElementById('slot-pinned-0');
+      const pinnedItem = pinned.querySelector('.slot-pinned-item');
+      const bubble = document.querySelector('#slot-posts-list-0 .im-bubble');
+      const content = document.getElementById('slot-content-0');
+      return {
+        hasPinnedClass: card.classList.contains('has-pinned-posts'),
+        pinnedTopOffset: pinned.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
+        paddingTopPx: parseFloat(window.getComputedStyle(content).paddingTop),
+        pinnedBgColor: window.getComputedStyle(pinnedItem).backgroundColor,
+        bubbleBgColor: window.getComputedStyle(bubble).backgroundColor
+      };
+    });
+    expect(layoutInfo.hasPinnedClass).toBe(true);
+    expect(Math.abs(layoutInfo.pinnedTopOffset)).toBeLessThanOrEqual(2);
+    expect(layoutInfo.paddingTopPx).toBeGreaterThan(45);
+    expect(layoutInfo.pinnedBgColor).toBe(layoutInfo.bubbleBgColor);
+
+    // Clicking a pinned item opens the post detail popup modal
+    await pinnedContainer.locator('.slot-pinned-item').nth(0).click();
+    const overlay = page.locator('#tweet-popup-overlay');
+    await expect(overlay).not.toHaveClass(/is-closed/);
+    await expect(overlay.locator('.discord-popup-text')).toContainText('First chronological post');
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveClass(/is-closed/);
+
+    // Collapse the pinned bar into a single compact summary bar, then expand it back
+    await pinnedContainer.locator('.slot-pinned-btn-collapse').first().click();
+    const collapsedBar = pinnedContainer.locator('.slot-pinned-collapsed-bar');
+    await expect(collapsedBar).toBeVisible();
+    await expect(collapsedBar.locator('.slot-pinned-count')).toContainText('2');
+    await collapsedBar.click();
+    await expect(pinnedContainer.locator('.slot-pinned-item')).toHaveCount(2);
+
+    // Reload and verify pinned posts and timeline exclusion persist in cache & profile export
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(pinnedContainer).toBeVisible();
+    await expect(pinnedContainer.locator('.slot-pinned-item')).toHaveCount(2);
+    await expect(timelineBubbles).toHaveCount(1);
+
+    const exportedPinnedCheck = await page.evaluate(() => {
+      const { buildProfileData } = require('./src/core/storage');
+      const { getRegisteredSlots } = require('./src/ui/slot');
+      const profile = buildProfileData(getRegisteredSlots());
+      const slot0 = profile.slots && profile.slots[0];
+      return {
+        pinnedKeysCount: slot0 && Array.isArray(slot0.pinnedKeys) ? slot0.pinnedKeys.length : 0,
+        pinnedPostsCount: slot0 && Array.isArray(slot0.pinnedPosts) ? slot0.pinnedPosts.length : 0
+      };
+    });
+    expect(exportedPinnedCheck.pinnedKeysCount).toBe(2);
+    expect(exportedPinnedCheck.pinnedPostsCount).toBe(2);
+
+    // Unpin the first pinned post -> restores to the first position in chronological timeline
+    await pinnedContainer.locator('.slot-pinned-btn-unpin').nth(0).click();
+    await expect(pinnedContainer.locator('.slot-pinned-item')).toHaveCount(1);
+    await expect(timelineBubbles).toHaveCount(2);
+    await expect(timelineBubbles.nth(0).locator('.im-text-content')).toContainText('First chronological post');
+    await expect(timelineBubbles.nth(1).locator('.im-text-content')).toContainText('Second chronological post');
+
+    // Unpin the remaining pinned post -> pinned bar hides and all 3 posts are in chronological order
+    await pinnedContainer.locator('.slot-pinned-btn-unpin').nth(0).click();
+    await expect(pinnedContainer).toBeHidden();
+    await expect(timelineBubbles).toHaveCount(3);
+    await expect(timelineBubbles.nth(0).locator('.im-text-content')).toContainText('First chronological post');
+    await expect(timelineBubbles.nth(1).locator('.im-text-content')).toContainText('Second chronological post');
+    await expect(timelineBubbles.nth(2).locator('.im-text-content')).toContainText('Third chronological post');
+  });
 });
 
 

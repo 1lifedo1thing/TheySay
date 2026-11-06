@@ -563,7 +563,7 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
     const inIgnoredControl = Boolean(
       target &&
       typeof target.closest === 'function' &&
-      target.closest('.im-date-pill, .slot-header, .slot-size-menu, a, button, input, textarea, select, label')
+      target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, a, button, input, textarea, select, label')
     );
     hoverEffectState.pointerDownInfo = {
       x: e.clientX,
@@ -602,8 +602,8 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
       if (sel && String(sel).trim().length > 0) return;
     }
 
-    // Ignore clicks on date pills, headers, or interactive controls
-    if (target.closest('.im-date-pill, .slot-header, .slot-size-menu, a, button, input, textarea, select, label')) {
+    // Ignore clicks on date pills, headers, pinned bars, or interactive controls
+    if (target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, a, button, input, textarea, select, label')) {
       return;
     }
 

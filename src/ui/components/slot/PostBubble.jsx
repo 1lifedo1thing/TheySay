@@ -1,6 +1,6 @@
 import React from 'react';
 import { Paper, Box, Badge } from '@mantine/core';
-import { IconArrowUpRight } from '@tabler/icons-react';
+import { IconArrowUpRight, IconPin } from '@tabler/icons-react';
 import { MediaGrid } from './MediaGrid';
 
 export function DateDivider({ label }) {
@@ -104,7 +104,8 @@ export function PostBubble({
   onMarkRead,
   onOpenExternal,
   onPrefetch,
-  onOpenPopup
+  onOpenPopup,
+  onTogglePin
 }) {
   const {
     post,
@@ -121,6 +122,7 @@ export function PostBubble({
     timeDisplay,
     linkUrl,
     linkTitle,
+    pinTitle,
     body
   } = item;
 
@@ -146,13 +148,13 @@ export function PostBubble({
     body &&
     (body.showAuthor || (Array.isArray(body.tags) && body.tags.length > 0));
 
-  const renderExternalLinkBtn = () => {
-    if (!linkUrl) return null;
-    return (
-      <a
-        className="im-btn-link"
-        data-url={linkUrl}
-        title={linkTitle}
+  const renderActionBtns = () => (
+    <>
+      <button
+        type="button"
+        className={`im-btn-pin${!linkUrl ? ' no-link' : ''}`}
+        title={pinTitle}
+        aria-label={pinTitle}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -160,15 +162,35 @@ export function PostBubble({
           if (typeof onMarkRead === 'function') {
             onMarkRead(post, bubbleEl);
           }
-          if (typeof onOpenExternal === 'function') {
-            onOpenExternal(linkUrl);
+          if (typeof onTogglePin === 'function') {
+            onTogglePin(post);
           }
         }}
       >
-        <IconArrowUpRight size={11} stroke={2.4} />
-      </a>
-    );
-  };
+        <IconPin size={10} stroke={2.4} />
+      </button>
+      {linkUrl && (
+        <a
+          className="im-btn-link"
+          data-url={linkUrl}
+          title={linkTitle}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const bubbleEl = e.currentTarget.closest('.im-bubble');
+            if (typeof onMarkRead === 'function') {
+              onMarkRead(post, bubbleEl);
+            }
+            if (typeof onOpenExternal === 'function') {
+              onOpenExternal(linkUrl);
+            }
+          }}
+        >
+          <IconArrowUpRight size={11} stroke={2.4} />
+        </a>
+      )}
+    </>
+  );
 
   return (
     <Paper
@@ -189,7 +211,11 @@ export function PostBubble({
         }
       }}
       onClick={(e) => {
-        if (e.target && typeof e.target.closest === 'function' && e.target.closest('.im-btn-link')) {
+        if (
+          e.target &&
+          typeof e.target.closest === 'function' &&
+          e.target.closest('.im-btn-link, .im-btn-pin')
+        ) {
           return;
         }
         const bubbleEl = e.currentTarget;
@@ -215,7 +241,7 @@ export function PostBubble({
               contentContainer={contentContainer}
             />
             <span className="im-time">{timeDisplay}</span>
-            {renderExternalLinkBtn()}
+            {renderActionBtns()}
           </>
         ) : (
           <>
@@ -228,14 +254,14 @@ export function PostBubble({
               imageAlt={imageAlt}
               contentContainer={contentContainer}
             />
-            {renderExternalLinkBtn()}
+            {renderActionBtns()}
           </>
         )
       ) : (
         <>
           <PostBubbleBody body={body} />
           <span className="im-time">{timeDisplay}</span>
-          {renderExternalLinkBtn()}
+          {renderActionBtns()}
         </>
       )}
     </Paper>
@@ -249,7 +275,8 @@ export function PostTimeline({
   onMarkRead,
   onOpenExternal,
   onPrefetch,
-  onOpenPopup
+  onOpenPopup,
+  onTogglePin
 }) {
   return (
     <>
@@ -263,6 +290,7 @@ export function PostTimeline({
             onOpenExternal={onOpenExternal}
             onPrefetch={onPrefetch}
             onOpenPopup={onOpenPopup}
+            onTogglePin={onTogglePin}
           />
         </React.Fragment>
       ))}

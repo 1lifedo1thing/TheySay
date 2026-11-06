@@ -422,6 +422,30 @@ function filterPostsByKeywords(posts, keywords) {
 
 const MAX_TRACKED_KEYS = 500;
 
+function getPostAllKeys(post) {
+  if (!post) return [];
+  const keys = [];
+  const mainKey = getPostKey(post);
+  if (mainKey) keys.push(mainKey);
+  if (Array.isArray(post.mergedPosts)) {
+    for (const mp of post.mergedPosts) {
+      const k = getPostKey(mp);
+      if (k && !keys.includes(k)) {
+        keys.push(k);
+      }
+    }
+  }
+  return keys;
+}
+
+function isPostUserPinned(slot, post) {
+  if (!slot || !post || !(slot.pinnedKeys instanceof Set) || slot.pinnedKeys.size === 0) {
+    return false;
+  }
+  const keys = getPostAllKeys(post);
+  return keys.some(k => slot.pinnedKeys.has(k));
+}
+
 function ensureSlotReadTracking(slot, cachedEntry = null) {
   if (!slot) return;
   if (!(slot.readKeys instanceof Set)) {
@@ -432,6 +456,15 @@ function ensureSlotReadTracking(slot, cachedEntry = null) {
   }
   if (typeof slot.maxReadTimestamp !== 'number' || isNaN(slot.maxReadTimestamp)) {
     slot.maxReadTimestamp = 0;
+  }
+  if (!(slot.pinnedKeys instanceof Set)) {
+    slot.pinnedKeys = new Set(Array.isArray(slot.pinnedKeys) ? slot.pinnedKeys : []);
+  }
+  if (!Array.isArray(slot.pinnedPosts)) {
+    slot.pinnedPosts = [];
+  }
+  if (typeof slot.pinnedCollapsed !== 'boolean') {
+    slot.pinnedCollapsed = false;
   }
   if (cachedEntry && typeof cachedEntry === 'object') {
     if (Array.isArray(cachedEntry.readKeys)) {
@@ -446,6 +479,22 @@ function ensureSlotReadTracking(slot, cachedEntry = null) {
     }
     if (typeof cachedEntry.maxReadTimestamp === 'number' && cachedEntry.maxReadTimestamp > slot.maxReadTimestamp) {
       slot.maxReadTimestamp = cachedEntry.maxReadTimestamp;
+    }
+    if (
+      !slot._pinStateInitializedFromCache &&
+      (Array.isArray(cachedEntry.pinnedKeys) || Array.isArray(cachedEntry.pinnedPosts))
+    ) {
+      slot.pinnedKeys = new Set(
+        Array.isArray(cachedEntry.pinnedKeys) ? cachedEntry.pinnedKeys.filter(Boolean) : []
+      );
+      slot.pinnedPosts = Array.isArray(cachedEntry.pinnedPosts)
+        ? cachedEntry.pinnedPosts.filter(Boolean)
+        : [];
+      slot.pinnedPosts.forEach(pp => {
+        getPostAllKeys(pp).forEach(k => slot.pinnedKeys.add(k));
+      });
+      slot.pinnedCollapsed = Boolean(cachedEntry.pinnedCollapsed);
+      slot._pinStateInitializedFromCache = true;
     }
     const cachedPosts = Array.isArray(cachedEntry.posts)
       ? cachedEntry.posts
@@ -507,13 +556,23 @@ function shouldMarkScrapedItemUnread(slot, item) {
 
 function serializeSlotReadTracking(slot) {
   if (!slot) {
-    return { readKeys: [], knownKeys: [], maxReadTimestamp: 0 };
+    return {
+      readKeys: [],
+      knownKeys: [],
+      maxReadTimestamp: 0,
+      pinnedKeys: [],
+      pinnedPosts: [],
+      pinnedCollapsed: false
+    };
   }
   ensureSlotReadTracking(slot);
   return {
     readKeys: Array.from(slot.readKeys).slice(-MAX_TRACKED_KEYS),
     knownKeys: Array.from(slot.knownKeys).slice(-MAX_TRACKED_KEYS),
-    maxReadTimestamp: slot.maxReadTimestamp || 0
+    maxReadTimestamp: slot.maxReadTimestamp || 0,
+    pinnedKeys: Array.from(slot.pinnedKeys),
+    pinnedPosts: Array.isArray(slot.pinnedPosts) ? slot.pinnedPosts : [],
+    pinnedCollapsed: Boolean(slot.pinnedCollapsed)
   };
 }
 
@@ -522,12 +581,18 @@ function resetSlotReadTracking(slot) {
   slot.readKeys = new Set();
   slot.knownKeys = new Set();
   slot.maxReadTimestamp = 0;
+  slot.pinnedKeys = new Set();
+  slot.pinnedPosts = [];
+  slot.pinnedCollapsed = false;
+  slot._pinStateInitializedFromCache = false;
 }
 
 module.exports = {
   getPostId,
   getPostTimestamp,
   getPostKey,
+  getPostAllKeys,
+  isPostUserPinned,
   cleanInlineEntityNewlines,
   stripEmptyLines,
   processAndSortPosts,
