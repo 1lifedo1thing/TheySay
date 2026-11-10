@@ -132,15 +132,46 @@ function processAndSortPosts(posts) {
         prev.isUnread = false;
       }
       if (!prev.avatarUrl && p.avatarUrl) prev.avatarUrl = p.avatarUrl;
+      if (p.isMemberOnly && !prev.isMemberOnly) prev.isMemberOnly = true;
+      if (p.isArticle && !prev.isArticle) prev.isArticle = true;
+      if (p.hasFullArticleBody && !prev.hasFullArticleBody) prev.hasFullArticleBody = true;
+      if (p.authDetailFetched && !prev.authDetailFetched) prev.authDetailFetched = true;
+      if (
+        Array.isArray(p.articleBlocks) &&
+        p.articleBlocks.length > (Array.isArray(prev.articleBlocks) ? prev.articleBlocks.length : 0)
+      ) {
+        prev.articleBlocks = p.articleBlocks;
+      }
+      if (
+        p.text &&
+        p.text !== MEDIA_ONLY_FALLBACK_ZH &&
+        p.text !== MEDIA_ONLY_FALLBACK_EN &&
+        p.text !== MEMBER_ONLY_NOTICE_ZH &&
+        p.text !== MEMBER_ONLY_NOTICE_EN &&
+        (!prev.text ||
+          prev.text === MEDIA_ONLY_FALLBACK_ZH ||
+          prev.text === MEDIA_ONLY_FALLBACK_EN ||
+          prev.text === MEMBER_ONLY_NOTICE_ZH ||
+          prev.text === MEMBER_ONLY_NOTICE_EN ||
+          p.text.length > prev.text.length)
+      ) {
+        prev.text = p.text;
+      }
       if (p.hasQuote && !prev.hasQuote) prev.hasQuote = true;
       if (p.quoteUrl && !prev.quoteUrl) prev.quoteUrl = p.quoteUrl;
       if (p.quoteAuthor && !prev.quoteAuthor) prev.quoteAuthor = p.quoteAuthor;
       if (p.quoteText && !prev.quoteText) prev.quoteText = p.quoteText;
-      if (Array.isArray(p.images) && p.images.length > 0 && (!Array.isArray(prev.images) || prev.images.length === 0)) {
+      if (
+        Array.isArray(p.images) &&
+        p.images.length > (Array.isArray(prev.images) ? prev.images.length : 0)
+      ) {
         prev.images = p.images;
       }
       if (p.imagesBackfilled && !prev.imagesBackfilled) {
         prev.imagesBackfilled = true;
+      }
+      if (p.memberBackfilled && !prev.memberBackfilled) {
+        prev.memberBackfilled = true;
       }
       if (Array.isArray(p.attachments) && p.attachments.length > 0 && (!Array.isArray(prev.attachments) || prev.attachments.length === 0)) {
         prev.attachments = p.attachments;
@@ -338,26 +369,15 @@ function shouldShowPostPopup(post) {
   return !!(post.url || post.id);
 }
 
-function isMemberOnlyPost(post) {
-  if (!post) return false;
-  if (post.isMemberOnly === true || post.isSubscriberOnly === true) return true;
-  const postId = getPostId(post);
-  if (postId === '2103181567199687009') return true;
-  if (post.url && post.url.includes('2103181567199687009')) return true;
-  if (post.text) {
-    if (post.text.includes('Subscribe to unlock') ||
-        post.text.includes('Subscribe to view') ||
-        post.text.includes('订阅以解锁') ||
-        post.text.includes('订阅即可解锁') ||
-        post.text.includes('订阅以查看')) {
-      return true;
-    }
-  }
-  return false;
-}
-
 const MEDIA_ONLY_FALLBACK_ZH = '(该推文为纯媒体/卡片内容，无文本)';
 const MEDIA_ONLY_FALLBACK_EN = '(Media or card post with no text)';
+const MEMBER_ONLY_NOTICE_ZH = '此推文为创作者会员 / 订阅专享内容';
+const MEMBER_ONLY_NOTICE_EN = 'This post is exclusive to subscribers';
+
+function isMemberOnlyPost(post) {
+  if (!post) return false;
+  return Boolean(post.isMemberOnly === true || post.isSubscriberOnly === true);
+}
 
 function normalizeFilterKeywordItem(raw) {
   return String(raw ?? '').replace(/\s+/g, ' ').trim();
@@ -410,6 +430,8 @@ function doesPostMatchFilterKeywords(post, keywords) {
       typeof t === 'string' &&
       t !== MEDIA_ONLY_FALLBACK_ZH &&
       t !== MEDIA_ONLY_FALLBACK_EN &&
+      t !== MEMBER_ONLY_NOTICE_ZH &&
+      t !== MEMBER_ONLY_NOTICE_EN &&
       regex.test(t)
   );
 }

@@ -156,6 +156,22 @@ function extractSyndicationImages(data) {
   return images;
 }
 
+function isSyndicationSubscriberOnly(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (data.is_member_only === true || Boolean(data.exclusive_tweet_info)) return true;
+  const tb = data.tombstone;
+  if (tb && typeof tb === 'object') {
+    const entities = tb.text && Array.isArray(tb.text.entities) ? tb.text.entities : [];
+    for (const ent of entities) {
+      const refUrl = ent && ent.ref && typeof ent.ref.url === 'string' ? ent.ref.url : '';
+      if (/\/(?:creator-subscriptions|creator_subscriptions|superfollows|super_follows)(?:\/|$)/i.test(refUrl)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function fetchFullTweetData(tweetId) {
   const id = String(tweetId || '').trim();
   if (!/^\d+$/.test(id)) return Promise.resolve(null);
@@ -201,7 +217,8 @@ function fetchFullTweetData(tweetId) {
             text,
             codePointLength: Array.from(text).length,
             entities,
-            images
+            images,
+            isMemberOnly: Boolean(tweet.is_member_only || tweet.is_subscriber_only)
           };
         }
       }
@@ -220,7 +237,8 @@ function fetchFullTweetData(tweetId) {
             text,
             codePointLength: Array.from(text).length,
             entities: null,
-            images
+            images,
+            isMemberOnly: false
           };
         }
       }
@@ -237,16 +255,20 @@ function fetchFullTweetData(tweetId) {
       );
       if (res.status >= 200 && res.status < 300 && res.body) {
         const data = JSON.parse(res.body);
-        if (data && typeof data === 'object' && (data.text || data.photos || data.mediaDetails || data.video)) {
-          const text = String(data.text || '');
-          const images = extractSyndicationImages(data);
-          return {
-            id,
-            text,
-            codePointLength: Array.from(text).length,
-            entities: null,
-            images
-          };
+        if (data && typeof data === 'object') {
+          const isMemberOnly = isSyndicationSubscriberOnly(data);
+          if (data.text || data.photos || data.mediaDetails || data.video || isMemberOnly) {
+            const text = String(data.text || '');
+            const images = extractSyndicationImages(data);
+            return {
+              id,
+              text,
+              codePointLength: Array.from(text).length,
+              entities: null,
+              images,
+              isMemberOnly
+            };
+          }
         }
       }
     } catch (_) {}

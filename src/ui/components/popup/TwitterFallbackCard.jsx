@@ -8,6 +8,8 @@ export function TwitterFallbackCard({
   userHandle = '',
   isMemberOnly = false,
   effectiveTextHtml = '',
+  articleBlocks = [],
+  isLoadingDetail = false,
   images = [],
   hasQuote = false,
   quoteUrl = '',
@@ -25,6 +27,8 @@ export function TwitterFallbackCard({
       onOpenExternal(url);
     }
   };
+
+  const hasArticleBlocks = Array.isArray(articleBlocks) && articleBlocks.length > 0;
 
   return (
     <Paper
@@ -66,18 +70,81 @@ export function TwitterFallbackCard({
         </Box>
       )}
 
-      {effectiveTextHtml && (
-        <Box
-          className="tweet-popup-fallback-text"
-          dangerouslySetInnerHTML={{ __html: effectiveTextHtml }}
-        />
+      {isLoadingDetail && (
+        <Box className="tweet-popup-fallback-loading">
+          <span className="spinner-small" />
+          <span>{labels.loadingFullContent}</span>
+        </Box>
       )}
 
-      <PopupImageGallery
-        images={images}
-        imageAlt={labels.imageAlt}
-        viewOriginalImageTitle={labels.viewOriginalImageTitle}
-      />
+      {hasArticleBlocks ? (
+        <Box className="tweet-popup-fallback-article">
+          {articleBlocks.map((b, idx) => {
+            if (!b) return null;
+            if (b.type === 'image' && b.url) {
+              return (
+                <Box key={`img-${idx}`} className="discord-popup-image-wrap">
+                  <img
+                    className="discord-popup-image"
+                    src={b.url}
+                    alt={labels.imageAlt}
+                    referrerPolicy="no-referrer"
+                    data-url={b.url}
+                    title={labels.viewOriginalImageTitle}
+                    onError={(e) => {
+                      const wrap = e.currentTarget.closest('.discord-popup-image-wrap');
+                      if (wrap) wrap.style.display = 'none';
+                    }}
+                  />
+                </Box>
+              );
+            }
+            if (b.type === 'title' && b.html) {
+              return (
+                <Box
+                  key={`title-${idx}`}
+                  className="tweet-popup-fallback-article-title tweet-popup-fallback-text"
+                  dangerouslySetInnerHTML={{ __html: b.html }}
+                />
+              );
+            }
+            if (b.type === 'heading' && b.html) {
+              return (
+                <Box
+                  key={`heading-${idx}`}
+                  className="tweet-popup-fallback-article-heading tweet-popup-fallback-text"
+                  dangerouslySetInnerHTML={{ __html: b.html }}
+                />
+              );
+            }
+            if (b.html) {
+              return (
+                <Box
+                  key={`txt-${idx}`}
+                  className="tweet-popup-fallback-text"
+                  dangerouslySetInnerHTML={{ __html: b.html }}
+                />
+              );
+            }
+            return null;
+          })}
+        </Box>
+      ) : (
+        <>
+          {effectiveTextHtml && (
+            <Box
+              className="tweet-popup-fallback-text"
+              dangerouslySetInnerHTML={{ __html: effectiveTextHtml }}
+            />
+          )}
+
+          <PopupImageGallery
+            images={images}
+            imageAlt={labels.imageAlt}
+            viewOriginalImageTitle={labels.viewOriginalImageTitle}
+          />
+        </>
+      )}
 
       {hasQuote && (
         <Box className="tweet-popup-fallback-quote">

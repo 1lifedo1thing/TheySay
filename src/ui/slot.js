@@ -26,8 +26,12 @@ const {
   doesPostMatchFilterKeywords,
   filterPostsByKeywords
 } = require('../core/post');
-const { openPostPopup, prefetchPost } = require('./popup');
+const { openPostPopup, prefetchPost, applyAuthenticatedDetailToPost } = require('./popup');
 const { fetchFullTweetData } = require('./tweet_embed');
+const {
+  shouldFetchAuthenticatedDetail,
+  fetchAuthenticatedTweetDetail
+} = require('../data/webview');
 const {
   getSavedHandles,
   saveHandles,
@@ -815,10 +819,15 @@ function buildPostBubbleData(post) {
     post.text = cleanInlineEntityNewlines(post.text);
   }
   const rawText = stripEmptyLines(normalizeMediaOnlyText((post.text || '').trim()));
-  const isMediaFallbackOnly = images.length > 0 && rawText === t('scraper.mediaOnlyFallback');
-  const effectiveText = isMediaFallbackOnly
-    ? ''
-    : (rawText || (images.length === 0 ? t('scraper.mediaOnlyFallback') : ''));
+  const memberOnly = isMemberOnlyPost(post);
+  const isFallbackPlaceholder =
+    !rawText || rawText === t('scraper.mediaOnlyFallback') || rawText === t('popup.memberOnlyNotice');
+  const effectiveText =
+    images.length > 0 && isFallbackPlaceholder
+      ? ''
+      : isFallbackPlaceholder
+        ? (memberOnly ? t('popup.memberOnlyNotice') : t('scraper.mediaOnlyFallback'))
+        : rawText;
   const displayText = replaceUrlsWithTitles(effectiveText, post.linkTitles);
   const chars = Array.from(displayText);
   const isLong = chars.length > BASE_PREVIEW_CHARS;
@@ -830,7 +839,7 @@ function buildPostBubbleData(post) {
   if (post.isPinned) tags.push({ type: 'pinned', label: t('slot.tagPinned') });
   if (post.isRetweet) tags.push({ type: 'repost', label: t('slot.tagRepost') });
   if (isPostWithQuote(post)) tags.push({ type: 'quote', label: t('slot.tagQuote') });
-  if (isMemberOnlyPost(post)) {
+  if (memberOnly) {
     tags.push({
       type: 'member',
       label: t('slot.tagMemberOnly'),
@@ -1257,6 +1266,11 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
       if (!p.displayName && displayName) p.displayName = displayName;
       if (!p.userHandle && userHandle) p.userHandle = userHandle;
     }
+    if (!isDiscord && !isThreads) {
+      p._onAuthDetailUpdated = () => {
+        reRenderSlotCurrentState(slot, slots, { preserveScroll: true });
+      };
+    }
   };
 
   displayPosts.forEach(hydratePostIdentity);
@@ -1485,13 +1499,20 @@ function refreshSlotBubbleTextsWithTitles(slot) {
     if (!textContentEl) return;
 
     const images = Array.isArray(post.images) ? post.images.filter(Boolean) : [];
+    const memberOnly = !isDiscord && isMemberOnlyPost(post);
     const rawText = isDiscord
       ? stripEmptyLines(normalizeMediaOnlyText(stripDiscordEditedText(post.text || '')))
       : stripEmptyLines(normalizeMediaOnlyText((post.text || '').trim()));
-    const isMediaFallbackOnly = images.length > 0 && rawText === t('scraper.mediaOnlyFallback');
-    const effectiveText = isMediaFallbackOnly
-      ? ''
-      : (rawText || (!isDiscord && images.length === 0 ? t('scraper.mediaOnlyFallback') : ''));
+    const isFallbackPlaceholder =
+      !rawText || rawText === t('scraper.mediaOnlyFallback') || rawText === t('popup.memberOnlyNotice');
+    const effectiveText =
+      images.length > 0 && isFallbackPlaceholder
+        ? ''
+        : isFallbackPlaceholder
+          ? (memberOnly
+              ? t('popup.memberOnlyNotice')
+              : (!isDiscord && images.length === 0 ? t('scraper.mediaOnlyFallback') : ''))
+          : rawText;
 
     if (!effectiveText) return;
 
@@ -1524,7 +1545,12 @@ function refreshSlotBubbleTextsWithTitles(slot) {
       const rawText = isDiscord
         ? stripEmptyLines(normalizeMediaOnlyText(stripDiscordEditedText(post.text || '')))
         : stripEmptyLines(normalizeMediaOnlyText((post.text || '').trim()));
-      const singleLineRaw = rawText.replace(/[\r\n]+/g, ' ').trim();
+      const memberOnly = !isDiscord && isMemberOnlyPost(post);
+      const isFallbackPlaceholder =
+        !rawText || rawText === t('scraper.mediaOnlyFallback') || rawText === t('popup.memberOnlyNotice');
+      const resolvedPinnedText =
+        isFallbackPlaceholder && memberOnly ? t('popup.memberOnlyNotice') : rawText;
+      const singleLineRaw = resolvedPinnedText.replace(/[\r\n]+/g, ' ').trim();
       if (singleLineRaw) {
         textContentEl.innerHTML = formatTextWithTickers(singleLineRaw, singleLineRaw, { linkTitles: post.linkTitles });
       }
@@ -1624,26 +1650,34 @@ async function backfillTwitterSlotImages(slot, slots = []) {
   if (posts.length === 0) return;
 
   const toBackfill = [];
+  const toAuthBackfill = [];
   for (const p of posts) {
     if (!p) continue;
+    const postId = getPostId(p);
+    if (!postId || !/^\d+$/.test(postId)) continue;
+
+    if (shouldFetchAuthenticatedDetail(p)) {
+      toAuthBackfill.push({ post: p, postId });
+    }
+
     if (Array.isArray(p.images) && p.images.length > 0) {
       p.imagesBackfilled = true;
       continue;
     }
-    if (p.imagesBackfilled) continue;
-    const postId = getPostId(p);
-    if (postId && /^\d+$/.test(postId)) {
-      toBackfill.push({ post: p, postId });
-    }
+    const rawTrimmed = normalizeMediaOnlyText(String(p.text || '').trim());
+    const isFallbackOnly = !rawTrimmed || rawTrimmed === t('scraper.mediaOnlyFallback');
+    const needsMemberCheck = isFallbackOnly && !isMemberOnlyPost(p) && !p.memberBackfilled;
+    if (p.imagesBackfilled && !needsMemberCheck) continue;
+    toBackfill.push({ post: p, postId });
   }
 
-  if (toBackfill.length === 0) return;
+  if (toBackfill.length === 0 && toAuthBackfill.length === 0) return;
   slot._isBackfillingImages = true;
   const targetHandleAtStart = normalizeTwitterHandle(
     slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '')
   ).toLowerCase();
 
-  let anyImagesFound = false;
+  let anyPostsUpdated = false;
   let anyCompleted = false;
 
   try {
@@ -1655,12 +1689,31 @@ async function backfillTwitterSlotImages(slot, slots = []) {
             const data = await fetchFullTweetData(postId);
             if (data) {
               post.imagesBackfilled = true;
+              post.memberBackfilled = true;
               anyCompleted = true;
               if (Array.isArray(data.images) && data.images.length > 0) {
                 post.images = data.images;
-                anyImagesFound = true;
+                anyPostsUpdated = true;
               } else if (!Array.isArray(post.images)) {
                 post.images = [];
+              }
+              if (data.isMemberOnly && !post.isMemberOnly) {
+                post.isMemberOnly = true;
+                anyPostsUpdated = true;
+                if (
+                  shouldFetchAuthenticatedDetail(post) &&
+                  !toAuthBackfill.some(x => x.post === post)
+                ) {
+                  toAuthBackfill.push({ post, postId });
+                }
+              }
+              if (
+                data.text &&
+                (!post.text ||
+                  normalizeMediaOnlyText(String(post.text).trim()) === t('scraper.mediaOnlyFallback'))
+              ) {
+                post.text = data.text;
+                anyPostsUpdated = true;
               }
             }
           } catch (_) {}
@@ -1668,12 +1721,29 @@ async function backfillTwitterSlotImages(slot, slots = []) {
       )
     );
 
+    if (toAuthBackfill.length > 0) {
+      // Only auto-backfill the most recent 3 posts needing authenticated detail to keep background navigation light
+      const recentAuthTargets = toAuthBackfill.slice(-3);
+      for (const { post } of recentAuthTargets) {
+        if (!shouldFetchAuthenticatedDetail(post)) continue;
+        try {
+          const detail = await fetchAuthenticatedTweetDetail(post);
+          if (detail) {
+            anyCompleted = true;
+            if (applyAuthenticatedDetailToPost(post, detail)) {
+              anyPostsUpdated = true;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
     const currentHandle = normalizeTwitterHandle(
       slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '')
     ).toLowerCase();
     if (currentHandle !== targetHandleAtStart) return;
 
-    if (anyImagesFound && Array.isArray(slot.loadedPosts) && slot.loadedPosts.length > 0) {
+    if (anyPostsUpdated && Array.isArray(slot.loadedPosts) && slot.loadedPosts.length > 0) {
       const handle = slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '');
       const avatarUrl = (slot.avatarImg && slot.avatarImg.src) || null;
       const meta = {

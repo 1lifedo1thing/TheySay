@@ -4,7 +4,12 @@ const { LRUCache } = require('lru-cache');
 const { getPostId, isMemberOnlyPost } = require('../core/post');
 const { stripDiscordEditedText } = require('../core/utils');
 const { formatTextWithTickers, registerUrlTitlesMap, fetchUrlTitle } = require('../core/ticker');
-const { installRendererEmbedHooks } = require('./tweet_embed');
+const { installRendererEmbedHooks, fetchFullTweetData } = require('./tweet_embed');
+const {
+  isPlaceholderPostText,
+  shouldFetchAuthenticatedDetail,
+  fetchAuthenticatedTweetDetail
+} = require('../data/webview');
 const {
   t,
   translateAttachmentLabel,
@@ -52,6 +57,83 @@ function getCurrentTheme() {
 function isPostPopupOpen() {
   const overlay = getOverlay();
   return !!(overlay && !overlay.classList.contains('is-closed'));
+}
+
+function applyAuthenticatedDetailToPost(post, detail) {
+  if (!post || !detail) return false;
+  let updated = false;
+  post.authDetailFetched = true;
+
+  if (detail.isMemberOnly && !post.isMemberOnly) {
+    post.isMemberOnly = true;
+    updated = true;
+  }
+  if (detail.isArticle && !post.isArticle) {
+    post.isArticle = true;
+    updated = true;
+  }
+  if (detail.hasFullArticleBody && !post.hasFullArticleBody) {
+    post.hasFullArticleBody = true;
+    updated = true;
+  }
+  if (
+    Array.isArray(detail.articleBlocks) &&
+    detail.articleBlocks.length >
+      (Array.isArray(post.articleBlocks) ? post.articleBlocks.length : 0)
+  ) {
+    post.articleBlocks = detail.articleBlocks;
+    updated = true;
+  }
+  if (detail.text && !isPlaceholderPostText(detail.text)) {
+    if (isPlaceholderPostText(post.text) || detail.text.length > (post.text || '').length) {
+      post.text = detail.text;
+      post.isTruncated = false;
+      updated = true;
+    }
+  }
+  if (Array.isArray(detail.images) && detail.images.length > 0) {
+    const currentImages = Array.isArray(post.images) ? post.images.filter(Boolean) : [];
+    const mergedImages = [...currentImages];
+    let addedImg = false;
+    for (const img of detail.images) {
+      if (img && !mergedImages.includes(img)) {
+        mergedImages.push(img);
+        addedImg = true;
+      }
+    }
+    if (addedImg || !Array.isArray(post.images)) {
+      post.images = mergedImages;
+      updated = true;
+    }
+  }
+  return updated;
+}
+
+function hydrateFallbackEntryFromAuthSession(entry) {
+  const post = entry && entry.post;
+  if (!entry || entry.disposed || !post || !shouldFetchAuthenticatedDetail(post)) {
+    return;
+  }
+  if (entry._fetchingAuthDetail) return;
+  entry._fetchingAuthDetail = true;
+  renderFallbackInto(entry, { isLoadingDetail: true });
+
+  fetchAuthenticatedTweetDetail(post)
+    .then((detail) => {
+      entry._fetchingAuthDetail = false;
+      if (entry.disposed || !entry.post) return;
+      const updated = applyAuthenticatedDetailToPost(entry.post, detail);
+      renderFallbackInto(entry, { isLoadingDetail: false });
+      if (updated && typeof entry.post._onAuthDetailUpdated === 'function') {
+        entry.post._onAuthDetailUpdated(entry.post);
+      }
+    })
+    .catch(() => {
+      entry._fetchingAuthDetail = false;
+      if (!entry.disposed) {
+        renderFallbackInto(entry, { isLoadingDetail: false });
+      }
+    });
 }
 
 /* ----------------------------------------------------------------
@@ -141,7 +223,21 @@ function renderSlot(entry, postId, { priority = false } = {}) {
           clearTimeout(timer);
           entry.runTask = null;
           entry.status = ok ? 'ready' : 'failed';
-          if (!ok && !entry.disposed) renderFallbackInto(entry);
+          if (!ok && !entry.disposed) {
+            renderFallbackInto(entry);
+            if (entry.post && !isMemberOnlyPost(entry.post)) {
+              fetchFullTweetData(postId)
+                .then((data) => {
+                  if (data && data.isMemberOnly && entry.post && !entry.disposed) {
+                    entry.post.isMemberOnly = true;
+                    renderFallbackInto(entry);
+                    hydrateFallbackEntryFromAuthSession(entry);
+                  }
+                })
+                .catch(() => {});
+            }
+            hydrateFallbackEntryFromAuthSession(entry);
+          }
           resolve(entry.status);
           finishTask();
         };
@@ -210,7 +306,7 @@ function resolvePopupLinksInElement(containerEl, post) {
   });
 }
 
-function renderFallbackInto(entry) {
+function renderFallbackInto(entry, { isLoadingDetail = false } = {}) {
   const post = entry.post;
   if (!entry.el || !post) return;
 
@@ -219,9 +315,12 @@ function renderFallbackInto(entry) {
   }
 
   const images = Array.isArray(post.images) ? post.images.filter(Boolean) : [];
+  const memberOnly = isMemberOnlyPost(post);
   const rawText = normalizeMediaOnlyText((post.text || '').trim());
-  const isMediaFallbackOnly = images.length > 0 && rawText === t('scraper.mediaOnlyFallback');
-  const effectiveText = isMediaFallbackOnly ? '' : rawText;
+  const isFallbackPlaceholder =
+    rawText === t('scraper.mediaOnlyFallback') || rawText === t('popup.memberOnlyNotice');
+  const effectiveText =
+    (images.length > 0 || memberOnly) && isFallbackPlaceholder ? '' : rawText;
   const timeDisplay = post.time || (post.datetime ? new Date(post.datetime).toLocaleString() : '');
   const displayName = post.displayName || post.userHandle || '';
   const userHandle = post.userHandle || '';
@@ -233,12 +332,35 @@ function renderFallbackInto(entry) {
       })
     : '';
 
+  const formattedArticleBlocks = Array.isArray(post.articleBlocks)
+    ? post.articleBlocks
+        .map((b) => {
+          if (!b) return null;
+          if (b.type === 'image' && b.url) {
+            return { type: 'image', url: b.url };
+          }
+          if (typeof b.text === 'string' && b.text.trim()) {
+            return {
+              type: b.type || 'text',
+              html: formatTextWithTickers(b.text.trim(), undefined, {
+                linkifyUrls: true,
+                linkTitles: post.linkTitles
+              })
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : [];
+
   renderMantineTwitterFallbackCard(entry.el, {
     avatarUrl,
     displayName,
     userHandle,
-    isMemberOnly: isMemberOnlyPost(post),
+    isMemberOnly: memberOnly,
     effectiveTextHtml,
+    articleBlocks: formattedArticleBlocks,
+    isLoadingDetail: Boolean(isLoadingDetail),
     images,
     hasQuote: Boolean(post.hasQuote || post.quoteUrl),
     quoteUrl: post.quoteUrl || '',
@@ -247,6 +369,7 @@ function renderFallbackInto(entry) {
     labels: {
       memberOnlyTag: t('popup.memberOnlyTag'),
       memberOnlyNotice: t('popup.memberOnlyNotice'),
+      loadingFullContent: t('popup.loadingFullContent'),
       imageAlt: t('slot.imageAlt'),
       viewOriginalImageTitle: t('popup.viewOriginalImageTitle'),
       quoteTag: t('popup.quoteTag'),
@@ -267,9 +390,13 @@ function renderFallbackInto(entry) {
 
 // Warm a post's embed in the background so a later click is instant.
 function prefetchPost(post, { priority = false } = {}) {
-  // Discord messages, Threads posts, merged posts, and member-only posts are rendered locally from data we already hold;
-  // there is no third-party widget to warm up.
-  if (!post || post.source === 'discord' || post.source === 'threads' || post.isMerged || isMemberOnlyPost(post)) return;
+  if (!post || post.source === 'discord' || post.source === 'threads' || post.isMerged) return;
+  if (isMemberOnlyPost(post) || post.isArticle) {
+    if (priority && shouldFetchAuthenticatedDetail(post)) {
+      fetchAuthenticatedTweetDetail(post).catch(() => {});
+    }
+    return;
+  }
 
   const postId = getPostId(post);
   if (!postId) return;
@@ -523,17 +650,21 @@ function openPostPopup(post) {
   entry.el.classList.add('is-active');
   openOverlay();
 
-  // If this is a member-only post or a merged multi-post bubble, Twitter's single-post public embed
-  // iframe cannot represent it. Immediately render the rich card with the full text and images.
-  if (isMemberOnlyPost(post) || post.isMerged) {
+  // If this is a member-only post, an X Article, or a merged multi-post bubble, Twitter's single-post public embed
+  // iframe cannot represent it. Immediately render the rich card and hydrate full content from the authenticated session if needed.
+  if (isMemberOnlyPost(post) || post.isArticle || post.isMerged) {
     if (loadingEl) loadingEl.style.display = 'none';
     renderFallbackInto(entry);
+    hydrateFallbackEntryFromAuthSession(entry);
     return;
   }
 
   if (entry.status === 'ready' || entry.status === 'failed') {
-    // Already pre-rendered: the card is on screen immediately, no swap, no spinner.
     if (loadingEl) loadingEl.style.display = 'none';
+    if (entry.status === 'failed') {
+      renderFallbackInto(entry);
+      hydrateFallbackEntryFromAuthSession(entry);
+    }
     return;
   }
 
@@ -659,5 +790,6 @@ module.exports = {
   closePostPopup,
   isPostPopupOpen,
   prefetchPost,
-  clearPostWidgetCache
+  clearPostWidgetCache,
+  applyAuthenticatedDetailToPost
 };

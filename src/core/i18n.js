@@ -205,6 +205,7 @@ const MESSAGES = {
     // Post / Threads / Discord Popup Modal
     'popup.dialogAriaLabel': 'Post details',
     'popup.loadingEmbed': 'Loading embedded post...',
+    'popup.loadingFullContent': 'Loading full post content...',
     'popup.memberOnlyBadge': 'Subscribers Only',
     'popup.memberOnlyTag': 'Subscribers Only',
     'popup.memberOnlyNotice': 'This post is exclusive to subscribers',
@@ -642,6 +643,7 @@ const MESSAGES = {
     // Post / Threads / Discord Popup Modal
     'popup.dialogAriaLabel': '推文详情',
     'popup.loadingEmbed': '正在加载嵌入推文...',
+    'popup.loadingFullContent': '正在加载完整内容...',
     'popup.memberOnlyBadge': '仅会员可见',
     'popup.memberOnlyTag': '仅会员可见',
     'popup.memberOnlyNotice': '此推文为创作者会员 / 订阅专享内容',
@@ -1054,6 +1056,12 @@ function normalizeMediaOnlyText(rawText) {
     s === '(Media or card post with no text)'
   ) {
     return t('scraper.mediaOnlyFallback');
+  }
+  if (
+    s === '此推文为创作者会员 / 订阅专享内容' ||
+    s === 'This post is exclusive to subscribers'
+  ) {
+    return t('popup.memberOnlyNotice');
   }
   return s;
 }

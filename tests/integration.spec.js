@@ -927,6 +927,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
     await page.evaluate(
       ({ times, imgUri, handlesKey, cacheKey }) => {
+        localStorage.setItem('theysay_onboarding_completed', '1');
         localStorage.setItem(
           'theysay_mock_tweet_data',
           JSON.stringify({
@@ -934,6 +935,12 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
               id: '998877665544332211',
               text: 'Cached legacy tweet that originally had no images field saved.',
               images: [imgUri]
+            },
+            '2119789073883656473': {
+              id: '2119789073883656473',
+              text: '',
+              images: [],
+              isMemberOnly: true
             }
           })
         );
@@ -1008,13 +1015,24 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
               {
                 id: '998877665544332211',
                 text: 'Long term\n$QQQ\n model continues to track extremely well.',
-                time: times[3],
+                time: times[2],
                 url: 'https://x.com/VitalikButerin/status/998877665544332211',
                 author: 'VitalikButerin',
                 isPinned: false,
                 isRetweet: false,
                 isUnread: false
                 // Intentionally omit `images` and `imagesBackfilled` to simulate old cached posts
+              },
+              {
+                id: '2119789073883656473',
+                text: '(该推文为纯媒体/卡片内容，无文本)',
+                time: times[3],
+                url: 'https://x.com/BeardoTrader/status/2119789073883656473',
+                author: 'BeardoTrader',
+                isPinned: false,
+                isRetweet: false,
+                isUnread: false,
+                images: []
               }
             ]
           }
@@ -1125,6 +1143,21 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const cleanedText = await backfilledBubble.locator('.im-text-content').textContent();
     expect(cleanedText).toBe('Long term $QQQ model continues to track extremely well.');
 
+    // 4b. Subscriber-only post without preview text shows member badge and subscriber notice instead of media-only fallback
+    const memberBubble = page.locator('#slot-content-1 .im-bubble').nth(1);
+    await expect(memberBubble).toHaveClass(/is-member-only/);
+    await expect(memberBubble.locator('.tweet-tag.member')).toBeVisible();
+    await expect(memberBubble.locator('.im-text-content')).toHaveText(
+      /此推文为创作者会员 \/ 订阅专享内容|This post is exclusive to subscribers/
+    );
+    await memberBubble.click();
+    await expect(popupOverlay).not.toHaveClass(/is-closed/);
+    const activeMemberCard = popupOverlay.locator('.tweet-embed-slot.is-active .tweet-popup-fallback');
+    await expect(activeMemberCard.locator('.tweet-tag.member')).toBeVisible();
+    await expect(activeMemberCard.locator('.tweet-popup-fallback-text')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(popupOverlay).toHaveClass(/is-closed/);
+
     // 5. Verify Twitter fallback popup card renders via Mantine Paper, Badge, and UnstyledButton
     await page.evaluate(() => {
       const { openPostPopup } = require('./src/ui/popup');
@@ -1142,7 +1175,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
       });
     });
     await expect(popupOverlay).not.toHaveClass(/is-closed/);
-    const fallbackCard = popupOverlay.locator('.tweet-popup-fallback');
+    const fallbackCard = popupOverlay.locator('.tweet-embed-slot.is-active .tweet-popup-fallback');
     await expect(fallbackCard).toBeVisible();
     await expect(fallbackCard).toHaveClass(/mantine-Paper-root/);
     await expect(fallbackCard.locator('.tweet-tag.member')).toHaveClass(/mantine-Badge-root/);
@@ -1150,6 +1183,47 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await expect(fallbackCard.locator('.tweet-popup-fallback-btn')).toHaveClass(
       /mantine-UnstyledButton-root/
     );
+    await page.keyboard.press('Escape');
+    await expect(popupOverlay).toHaveClass(/is-closed/);
+
+    // 5b. Verify Super Follow X Article popup renders full interleaved title, headings, text & images in-app
+    await page.evaluate(
+      ({ imgUri }) => {
+        const { openPostPopup } = require('./src/ui/popup');
+        openPostPopup({
+          id: '2119789073883656474',
+          source: 'twitter',
+          displayName: 'Beardo',
+          userHandle: '@BeardoTrader',
+          text: 'THE WEEKLY OPEN\n\nMarket Overview\n\nBullish structure on $SPY and $QQQ heading into Monday.',
+          time: '5:47 AM',
+          url: 'https://x.com/BeardoTrader/status/2119789073883656474',
+          isMemberOnly: true,
+          isArticle: true,
+          hasFullArticleBody: true,
+          authDetailFetched: true,
+          images: [imgUri],
+          articleBlocks: [
+            { type: 'image', url: imgUri },
+            { type: 'title', text: 'THE WEEKLY OPEN' },
+            { type: 'heading', text: 'Market Overview' },
+            { type: 'text', text: 'Bullish structure on $SPY and $QQQ heading into Monday.' }
+          ]
+        });
+      },
+      { imgUri: dummySvgDataUri }
+    );
+    await expect(popupOverlay).not.toHaveClass(/is-closed/);
+    const articlePopupCard = popupOverlay.locator('.tweet-embed-slot.is-active .tweet-popup-fallback');
+    await expect(articlePopupCard.locator('.tweet-popup-fallback-article')).toBeVisible();
+    await expect(articlePopupCard.locator('.tweet-popup-fallback-article-title')).toHaveText(
+      'THE WEEKLY OPEN'
+    );
+    await expect(articlePopupCard.locator('.tweet-popup-fallback-article-heading')).toHaveText(
+      'Market Overview'
+    );
+    await expect(articlePopupCard.locator('.discord-popup-image')).toBeVisible();
+    await expect(articlePopupCard.locator('.ticker-highlight')).toHaveCount(2);
     await page.keyboard.press('Escape');
     await expect(popupOverlay).toHaveClass(/is-closed/);
   });

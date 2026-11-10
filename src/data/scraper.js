@@ -29,7 +29,8 @@ const {
   getOrCreateSlotWebview,
   waitForWebviewReady,
   loadWebviewTarget,
-  executeWebviewScript
+  executeWebviewScript,
+  buildReactTweetMetaHelperSource
 } = require('./webview');
 const {
   updateSlotAvatar,
@@ -186,6 +187,8 @@ function buildExtractionScript(handle) {
         return out.trim();
       };
 
+      ${buildReactTweetMetaHelperSource()}
+
       const items = [];
       for (const article of articles) {
         const timeEl = article.querySelector('time');
@@ -194,9 +197,15 @@ function buildExtractionScript(handle) {
           (userNameEl && userNameEl.querySelector('a[href*="/status/"]')) ||
           article.querySelector('a[href*="/status/"]');
         const postUrl = statusLink ? statusLink.getAttribute('href') : '';
+        const mainStatusMatch = postUrl ? postUrl.match(/\\/status\\/(\\d+)/) : null;
+        const mainStatusId = mainStatusMatch ? mainStatusMatch[1] : '';
+
         let textEl = article.querySelector('[data-testid="tweetText"]');
         if (!textEl) {
-          textEl = article.querySelector('[class*="whitespace-pre-wrap"]:not(a)');
+          const fallbackTextEl = article.querySelector('[class*="whitespace-pre-wrap"]:not(a)');
+          if (fallbackTextEl && !fallbackTextEl.closest('[data-testid="tombstone"]')) {
+            textEl = fallbackTextEl;
+          }
         }
 
         let isPinned = false;
@@ -237,7 +246,17 @@ function buildExtractionScript(handle) {
           }
         }
 
-        const extractedText = textEl ? readTweetText(textEl) : '';
+        const reactMeta = extractReactTweetMeta(article, mainStatusId);
+        let extractedText = textEl ? readTweetText(textEl) : '';
+        if (reactMeta.bestText && reactMeta.bestText.length > extractedText.length) {
+          extractedText = reactMeta.bestText;
+        }
+        if (!extractedText) {
+          const articleTitleEl = article.querySelector('[data-testid="twitter-article-title"]');
+          if (articleTitleEl) {
+            extractedText = (articleTitleEl.innerText || '').trim();
+          }
+        }
         const text = extractedText || ${mediaOnlyFallback};
         const displayTime = timeEl ? timeEl.innerText.trim() : (statusLink ? statusLink.innerText.trim() : '');
         const datetime = timeEl ? (timeEl.getAttribute('datetime') || '') : '';
@@ -261,8 +280,6 @@ function buildExtractionScript(handle) {
 
         // 3. Status links in href or data-href (with properly escaped template regex)
         const allStatusLinks = Array.from(article.querySelectorAll('a[href*="/status/"], [data-href*="/status/"]'));
-        const mainStatusMatch = postUrl ? postUrl.match(/\\/status\\/(\\d+)/) : null;
-        const mainStatusId = mainStatusMatch ? mainStatusMatch[1] : '';
 
         for (const link of allStatusLinks) {
           const href = link.getAttribute('data-href') || link.getAttribute('href') || '';
@@ -288,47 +305,22 @@ function buildExtractionScript(handle) {
 
         // Truncated detection on Twitter web
         let isTruncated = false;
-        if (article.querySelector('[data-testid="tweet-text-show-more-link"]') ||
-            (textEl && (textEl.innerText.includes('Show more') || textEl.innerText.includes('显示更多')))) {
-          isTruncated = true;
+        if (!reactMeta.noteTweetText && !reactMeta.hasFullArticleBody) {
+          if (article.querySelector('[data-testid="tweet-text-show-more-link"]') ||
+              (textEl && (textEl.innerText.includes('Show more') || textEl.innerText.includes('显示更多')))) {
+            isTruncated = true;
+          }
         }
 
-        // Member-only / subscriber-only detection
-        let isMemberOnly = false;
-        const memberLink = article.querySelector('a[href*="/superfollows"], a[href*="/super_follows"], a[href*="/creator-subscriptions"], a[href*="/creator_subscriptions"]');
-        if (memberLink && memberLink.closest('article') === article) {
-          isMemberOnly = true;
-        }
-
+        // Member-only / subscriber-only detection via structural DOM attributes & React Fiber props
+        let isMemberOnly = Boolean(reactMeta.isMemberOnly);
         if (!isMemberOnly) {
-          const unlockEl = article.querySelector('[aria-label*="Subscribe to unlock" i], [aria-label*="Subscribe to view" i], [aria-label*="订阅以解锁" i], [aria-label*="订阅即可解锁" i], [aria-label*="订阅以查看" i], [data-testid="superFollowsBadge"]');
-          if (unlockEl && unlockEl.closest('article') === article) {
+          const memberLink = article.querySelector(
+            'a[href*="/superfollows"], a[href*="/super_follows"], a[href*="/creator-subscriptions"], a[href*="/creator_subscriptions"], [data-testid="superFollowsBadge"]'
+          );
+          if (memberLink && memberLink.closest('article') === article) {
             isMemberOnly = true;
           }
-        }
-
-        if (!isMemberOnly && socialContext) {
-          const scText = (socialContext.innerText || '').toLowerCase();
-          if (scText.includes('exclusive') || scText.includes('subscriber') || scText.includes('super follows') || scText.includes('独家') || scText.includes('会员专属') || scText.includes('订阅者专属')) {
-            isMemberOnly = true;
-          }
-        }
-
-        if (!isMemberOnly) {
-          const artText = article.innerText || '';
-          if (artText.includes('Subscribe to unlock') ||
-              artText.includes('Subscribe to view') ||
-              artText.includes('订阅以解锁') ||
-              artText.includes('订阅即可解锁') ||
-              artText.includes('订阅以查看') ||
-              artText.includes('仅订阅者可见') ||
-              artText.includes('仅会员可见')) {
-            isMemberOnly = true;
-          }
-        }
-
-        if (!isMemberOnly && postUrl && postUrl.includes('2103181567199687009')) {
-          isMemberOnly = true;
         }
 
         // Extract post media images (photos & video thumbnails) outside any quoted tweet card
@@ -371,6 +363,17 @@ function buildExtractionScript(handle) {
           }
         }
 
+        for (let i = 0; i < reactMeta.images.length; i++) {
+          const rImg = reactMeta.images[i];
+          if (rImg && !images.includes(rImg)) {
+            images.push(rImg);
+          }
+        }
+
+        const isArticle =
+          Boolean(reactMeta.isArticle) ||
+          Boolean(article.querySelector('[data-testid="twitter-article-title"], a[href*="/articles/"]'));
+
         items.push({
           url: postUrl ? ('https://x.com' + postUrl) : '',
           text: text,
@@ -384,6 +387,11 @@ function buildExtractionScript(handle) {
           quoteUrl: quoteUrl,
           isTruncated: isTruncated,
           isMemberOnly: isMemberOnly,
+          isArticle: isArticle,
+          hasFullArticleBody: Boolean(reactMeta.hasFullArticleBody),
+          articleBlocks: Array.isArray(reactMeta.articleBlocks) && reactMeta.articleBlocks.length > 0
+            ? reactMeta.articleBlocks
+            : undefined,
           images: images
         });
       }
@@ -510,6 +518,7 @@ async function fetchTwitterSlot(
 
     const INITIAL_TARGET_COUNT = 5;
     const collectedNewPosts = [];
+    const collectedByKey = new Map();
     const seenInThisRun = new Set();
     const backfilledByKey = new Map();
     const maxAttempts = hasExisting ? 15 : 35;
@@ -579,7 +588,49 @@ async function fetchTwitterSlot(
               backfilledByKey.set(key, item);
             }
 
-            if (seenInThisRun.has(key)) continue;
+            if (seenInThisRun.has(key)) {
+              const prevCollected = collectedByKey.get(key);
+              if (prevCollected) {
+                if (
+                  Array.isArray(item.images) &&
+                  item.images.length > (Array.isArray(prevCollected.images) ? prevCollected.images.length : 0)
+                ) {
+                  prevCollected.images = item.images;
+                }
+                if (item.isMemberOnly && !prevCollected.isMemberOnly) {
+                  prevCollected.isMemberOnly = true;
+                }
+                if (item.isArticle && !prevCollected.isArticle) {
+                  prevCollected.isArticle = true;
+                }
+                if (item.hasFullArticleBody && !prevCollected.hasFullArticleBody) {
+                  prevCollected.hasFullArticleBody = true;
+                }
+                if (
+                  Array.isArray(item.articleBlocks) &&
+                  item.articleBlocks.length >
+                    (Array.isArray(prevCollected.articleBlocks) ? prevCollected.articleBlocks.length : 0)
+                ) {
+                  prevCollected.articleBlocks = item.articleBlocks;
+                }
+                if (item.hasQuote && !prevCollected.hasQuote) {
+                  prevCollected.hasQuote = true;
+                }
+                if (item.quoteUrl && !prevCollected.quoteUrl) {
+                  prevCollected.quoteUrl = item.quoteUrl;
+                }
+                if (
+                  item.text &&
+                  item.text !== t('scraper.mediaOnlyFallback') &&
+                  (!prevCollected.text ||
+                    prevCollected.text === t('scraper.mediaOnlyFallback') ||
+                    item.text.length > prevCollected.text.length)
+                ) {
+                  prevCollected.text = item.text;
+                }
+              }
+              continue;
+            }
             seenInThisRun.add(key);
 
             // Boundary detection: if this normal post was already fetched before
@@ -598,6 +649,7 @@ async function fetchTwitterSlot(
             if (!existingKeys.has(key)) {
               item.isUnread = hasExisting ? shouldMarkScrapedItemUnread(slot, item) : true;
               collectedNewPosts.push(item);
+              collectedByKey.set(key, item);
               foundNewOnThisScroll++;
             }
           }
@@ -679,9 +731,41 @@ async function fetchTwitterSlot(
     if (liveExistingPosts.length > 0) {
       liveExistingPosts.forEach(m => {
         const fresh = backfilledByKey.get(getPostKey(m));
-        if (fresh && Array.isArray(fresh.images) && fresh.images.length > 0 && (!Array.isArray(m.images) || m.images.length === 0)) {
-          m.images = fresh.images;
-          backfillChanged = true;
+        if (fresh) {
+          if (
+            Array.isArray(fresh.images) &&
+            fresh.images.length > (Array.isArray(m.images) ? m.images.length : 0)
+          ) {
+            m.images = fresh.images;
+            backfillChanged = true;
+          }
+          if (fresh.isMemberOnly && !m.isMemberOnly) {
+            m.isMemberOnly = true;
+            backfillChanged = true;
+          }
+          if (fresh.isArticle && !m.isArticle) {
+            m.isArticle = true;
+            backfillChanged = true;
+          }
+          if (fresh.hasFullArticleBody && !m.hasFullArticleBody) {
+            m.hasFullArticleBody = true;
+            backfillChanged = true;
+          }
+          if (
+            Array.isArray(fresh.articleBlocks) &&
+            fresh.articleBlocks.length > (Array.isArray(m.articleBlocks) ? m.articleBlocks.length : 0)
+          ) {
+            m.articleBlocks = fresh.articleBlocks;
+            backfillChanged = true;
+          }
+          if (
+            fresh.text &&
+            fresh.text !== t('scraper.mediaOnlyFallback') &&
+            (!m.text || m.text === t('scraper.mediaOnlyFallback') || fresh.text.length > m.text.length)
+          ) {
+            m.text = fresh.text;
+            backfillChanged = true;
+          }
         }
         if (!Array.isArray(m.images)) {
           m.images = [];
