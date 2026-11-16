@@ -128,6 +128,64 @@ function isUnavatarUrl(rawUrl) {
   return isUrlHostMatching(rawUrl, 'unavatar.io');
 }
 
+const ERROR_URL_TITLE_PATTERNS = [
+  /^未找到帖子\s*[-–/|]\s*X(?:\s*\|\s*404\s*错误)?$/i,
+  /^(?:Post|Page|Tweet)\s+not\s+found\s*[-–/|]\s*(?:X|Twitter)(?:\s*\|\s*404(?:\s*Error)?)?$/i,
+  /^(?:X|Twitter)\s*(?:\/\s*\?|[-–|]\s*404(?:\s*(?:Error|错误|Not\s*Found))?)$/i,
+  /^(?:HTTP\s*)?(?:400|401|403|404|405|408|410|429|500|502|503|504)(?:\s*[-–:|]\s*(?:Error|错误|Not\s*Found|Forbidden|Unauthorized|Bad\s*Gateway|Service\s*Unavailable|Gateway\s*Time-?out|Too\s*Many\s*Requests|Internal\s*Server\s*Error))?$/i,
+  /^(?:404\s*(?:Page\s*)?Not\s*Found|Page\s*Not\s*Found|Not\s*Found|403\s*Forbidden|Access\s*Denied|Just\s*a\s*moment\.{0,3}|Attention\s*Required!\s*\|\s*Cloudflare|Please\s*Wait\.\.\.|页面不存在|找不到页面|未找到页面|404\s*错误)(?:\s*[-–|·]\s*[^|]+)?$/i
+];
+
+function extractTwitterStatusId(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  const trimmed = rawUrl.trim();
+  const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  if (
+    !isUrlHostMatching(normalized, [
+      'x.com',
+      'twitter.com',
+      'fxtwitter.com',
+      'vxtwitter.com',
+      'fixupx.com',
+      'fixvx.com'
+    ])
+  ) {
+    return '';
+  }
+  try {
+    const u = new URL(normalized);
+    const m = u.pathname.match(/\/(?:i\/(?:web\/)?status|[A-Za-z0-9_]{1,15}\/status)\/(\d{5,})/i);
+    return m ? m[1] : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function isGenericTwitterTitle(title, rawUrl = '') {
+  const cleaned = String(title || '').trim();
+  if (!cleaned) return true;
+  if (/^(?:X|Twitter)$/i.test(cleaned)) return true;
+  if (rawUrl && extractTwitterStatusId(rawUrl)) {
+    if (/^X\s*上的\s*.+\(@[A-Za-z0-9_]+\)$/i.test(cleaned)) return true;
+    if (/^.+\(@[A-Za-z0-9_]+\)\s+on\s+(?:X|Twitter)$/i.test(cleaned)) return true;
+  }
+  return false;
+}
+
+function cleanUrlTitleString(rawTitle, rawUrl = '') {
+  if (!rawTitle || typeof rawTitle !== 'string') return '';
+  const cleaned = rawTitle
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!cleaned) return '';
+  if (/^https?:\/\/\S+$/i.test(cleaned)) return '';
+  if (rawUrl && cleaned.toLowerCase() === String(rawUrl).trim().toLowerCase()) return '';
+  if (ERROR_URL_TITLE_PATTERNS.some((re) => re.test(cleaned))) return '';
+  if (rawUrl && extractTwitterStatusId(rawUrl) && /^(?:X|Twitter)$/i.test(cleaned)) return '';
+  return cleaned;
+}
+
 module.exports = {
   escapeHtml,
   randomBetween,
@@ -139,5 +197,8 @@ module.exports = {
   stripDiscordEditedText,
   getUrlHostname,
   isUrlHostMatching,
-  isUnavatarUrl
+  isUnavatarUrl,
+  extractTwitterStatusId,
+  isGenericTwitterTitle,
+  cleanUrlTitleString
 };

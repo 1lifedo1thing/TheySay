@@ -5,7 +5,7 @@ const {
   DISCORD_WEBVIEW_ID,
   MAX_DISCORD_MESSAGES
 } = require('../core/constants');
-const { sleep, showToast, isNetworkOnline, canReachHost, stripDiscordEditedText } = require('../core/utils');
+const { sleep, showToast, isNetworkOnline, canReachHost, stripDiscordEditedText, cleanUrlTitleString } = require('../core/utils');
 const {
   processAndSortPosts,
   getPostKey,
@@ -1208,9 +1208,22 @@ async function jumpToPresent(wv) {
    Slot fetching
    ---------------------------------------------------------------- */
 
+function sanitizeLinkTitlesMap(linkTitles) {
+  if (!linkTitles || typeof linkTitles !== 'object') return undefined;
+  const cleanedMap = {};
+  for (const [u, rawTitle] of Object.entries(linkTitles)) {
+    const cleaned = cleanUrlTitleString(rawTitle, u);
+    if (cleaned) {
+      cleanedMap[u] = cleaned;
+    }
+  }
+  return Object.keys(cleanedMap).length > 0 ? cleanedMap : undefined;
+}
+
 function toSlotMessage(item, guildId, channelId) {
   return {
     ...item,
+    linkTitles: sanitizeLinkTitlesMap(item.linkTitles),
     text: stripDiscordEditedText(item.text),
     replyText: stripDiscordEditedText(item.replyText),
     source: SOURCE_DISCORD,

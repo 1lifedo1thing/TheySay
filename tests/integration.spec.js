@@ -1721,6 +1721,11 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const http = require('http');
     const server = http.createServer((req, res) => {
       const reqUrl = req.url || '';
+      if (reqUrl.startsWith('/not-found-x')) {
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<!doctype html><html><head><title>未找到帖子 - X | 404 错误</title></head><body>404</body></html>');
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       if (reqUrl.startsWith('/p/10262026-trading-recap-and-outlook')) {
         res.end('<!doctype html><html><head><title>10/26/2026 Trading Recap and Outlook - Alpha&#x27;s Substack</title></head><body>Recap</body></html>');
@@ -1735,6 +1740,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const port = server.address().port;
     const longUrl1 = `http://127.0.0.1:${port}/p/10262026?r=2wn5pz&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true`;
     const longUrl2 = `http://127.0.0.1:${port}/p/10262026-trading-recap-and-outlook?r=2wn5pz&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true`;
+    const notFoundUrl = `http://127.0.0.1:${port}/not-found-x`;
 
     try {
       await page.evaluate(
@@ -1837,6 +1843,27 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
       await page.keyboard.press('Escape');
       await expect(overlay).toHaveClass(/is-closed/);
+
+      // Verify HTTP 404 / error-page titles are never resolved or cached as link titles
+      const errorTitleCheck = await page.evaluate(async (nfUrl) => {
+        const { ipcRenderer } = require('electron');
+        const { cleanUrlTitleString, registerUrlTitle, getCachedUrlTitle } = require('./src/core/ticker');
+        const ipcRes = await ipcRenderer.invoke('fetch-url-title', nfUrl);
+        registerUrlTitle('https://x.com/foo/status/1234567890', '未找到帖子 - X | 404 错误', { persist: false });
+        return {
+          ipcRes,
+          rejectedX404: cleanUrlTitleString('未找到帖子 - X | 404 错误', 'https://x.com/foo/status/1234567890'),
+          rejectedGeneric404: cleanUrlTitleString('404 Not Found', 'https://example.com/missing'),
+          valid404Guide: cleanUrlTitleString('How to handle 404 errors', 'https://example.com/guide'),
+          cachedX404: getCachedUrlTitle('https://x.com/foo/status/1234567890')
+        };
+      }, notFoundUrl);
+      expect(errorTitleCheck.ipcRes.ok).toBe(false);
+      expect(errorTitleCheck.ipcRes.title).toBe('');
+      expect(errorTitleCheck.rejectedX404).toBe('');
+      expect(errorTitleCheck.rejectedGeneric404).toBe('');
+      expect(errorTitleCheck.valid404Guide).toBe('How to handle 404 errors');
+      expect(errorTitleCheck.cachedX404).toBe('');
 
       // Verify linkify-it + tlds, normalize-url, and colord behavior
       const linkifyCheck = await page.evaluate(() => {

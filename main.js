@@ -4,11 +4,16 @@ const path = require('path');
 const Store = require('electron-store');
 const englishWords = require('an-array-of-english-words');
 const { LRUCache } = require('lru-cache');
-const { getLinkPreview, getPreviewFromContent } = require('link-preview-js');
+const { getPreviewFromContent } = require('link-preview-js');
 const { DISCORD_PARTITION, THREADS_PARTITION, THREADS_LOGIN_URL } = require('./src/core/constants');
-const { TWEET_EMBED_ENHANCEMENT_SCRIPT } = require('./src/ui/tweet_embed');
+const { TWEET_EMBED_ENHANCEMENT_SCRIPT, fetchFullTweetData } = require('./src/ui/tweet_embed');
 const { t, setActiveLanguageOverride } = require('./src/core/i18n');
-const { isUrlHostMatching } = require('./src/core/utils');
+const {
+  isUrlHostMatching,
+  extractTwitterStatusId,
+  isGenericTwitterTitle,
+  cleanUrlTitleString
+} = require('./src/core/utils');
 const {
   setMockReleaseData,
   getLastUpdateState,
@@ -1273,36 +1278,41 @@ async function fetchUrlPreview(targetUrl, { userAgent = DISCORD_USER_AGENT, time
     'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
     accept: 'text/html,application/xhtml+xml'
   };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    return await getLinkPreview(targetUrl, {
-      followRedirects: 'follow',
-      timeout,
-      headers
+    const res = await fetch(targetUrl, {
+      headers,
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    if (!res.ok) return null;
+    const resHeaders = {};
+    res.headers.forEach((v, k) => {
+      resHeaders[k] = v;
+    });
+    const contentType = String(resHeaders['content-type'] || '').toLowerCase();
+    const isBinaryMedia =
+      contentType.startsWith('image/') ||
+      contentType.startsWith('audio/') ||
+      contentType.startsWith('video/') ||
+      (contentType.startsWith('application/') &&
+        !contentType.includes('xml') &&
+        !contentType.includes('xhtml') &&
+        !contentType.includes('json'));
+    const data = isBinaryMedia ? '' : await res.text();
+    if (!resHeaders['content-type']) {
+      resHeaders['content-type'] = 'text/html; charset=utf-8';
+    }
+    return await getPreviewFromContent({
+      url: res.url || targetUrl,
+      headers: resHeaders,
+      data
     });
   } catch (_) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const res = await fetch(targetUrl, {
-        headers,
-        redirect: 'follow',
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-      if (!res.ok) return null;
-      const resHeaders = { 'content-type': 'text/html; charset=utf-8' };
-      res.headers.forEach((v, k) => {
-        resHeaders[k] = v;
-      });
-      return await getPreviewFromContent({
-        url: res.url || targetUrl,
-        headers: resHeaders,
-        data: await res.text()
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      return null;
-    }
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -1737,6 +1747,22 @@ ipcMain.handle('apply-downloaded-update', async () => {
 
 const mainUrlTitleCache = new LRUCache({ max: 1000 });
 
+function formatTwitterStatusTitle(tweetData) {
+  if (!tweetData || typeof tweetData !== 'object') return '';
+  const authorName = String(tweetData.authorName || '').replace(/[\r\n\t]+/g, ' ').trim();
+  const authorHandle = String(tweetData.authorHandle || '').replace(/^@+/, '').trim();
+  const rawText = String(tweetData.text || '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const chars = Array.from(rawText);
+  const snippet = chars.length > 100 ? `${chars.slice(0, 100).join('').trimEnd()}…` : rawText;
+  const authorLabel = authorName
+    ? (authorHandle ? `${authorName} (@${authorHandle})` : authorName)
+    : (authorHandle ? `@${authorHandle}` : '');
+  if (authorLabel && snippet) return `${authorLabel}: ${snippet}`;
+  if (snippet) return snippet;
+  if (authorLabel) return `${authorLabel} / X`;
+  return '';
+}
+
 ipcMain.handle('fetch-url-title', async (event, rawUrl) => {
   try {
     const cleanInput = String(rawUrl || '').trim();
@@ -1744,19 +1770,39 @@ ipcMain.handle('fetch-url-title', async (event, rawUrl) => {
     const targetUrl = /^https?:\/\//i.test(cleanInput) ? cleanInput : `https://${cleanInput}`;
 
     if (mainUrlTitleCache.has(targetUrl)) {
-      const cachedTitle = mainUrlTitleCache.get(targetUrl);
-      return { ok: Boolean(cachedTitle), url: cleanInput, title: cachedTitle };
+      const cachedTitle = cleanUrlTitleString(mainUrlTitleCache.get(targetUrl), targetUrl);
+      if (cachedTitle) {
+        return { ok: true, url: cleanInput, title: cachedTitle };
+      }
+      mainUrlTitleCache.delete(targetUrl);
     }
 
-    const preview = await fetchUrlPreview(targetUrl, {
-      userAgent: DISCORD_USER_AGENT,
-      timeout: 6500
-    });
+    const directStatusId = extractTwitterStatusId(targetUrl);
+    let finalUrl = targetUrl;
+    let title = '';
 
-    const title = String((preview && preview.title) || '')
-      .replace(/[\r\n\t]+/g, ' ')
-      .trim();
-    const finalUrl = (preview && preview.url) || targetUrl;
+    if (directStatusId) {
+      const tweetData = await fetchFullTweetData(directStatusId).catch(() => null);
+      title = cleanUrlTitleString(formatTwitterStatusTitle(tweetData), targetUrl);
+    }
+
+    if (!title) {
+      const preview = await fetchUrlPreview(targetUrl, {
+        userAgent: DISCORD_USER_AGENT,
+        timeout: 6500
+      });
+      finalUrl = (preview && preview.url) || targetUrl;
+      title = cleanUrlTitleString((preview && preview.title) || '', finalUrl);
+
+      const redirectedStatusId = !directStatusId ? extractTwitterStatusId(finalUrl) : '';
+      if (redirectedStatusId && (!title || isGenericTwitterTitle(title, finalUrl))) {
+        const tweetData = await fetchFullTweetData(redirectedStatusId).catch(() => null);
+        const tweetTitle = cleanUrlTitleString(formatTwitterStatusTitle(tweetData), finalUrl);
+        if (tweetTitle) {
+          title = tweetTitle;
+        }
+      }
+    }
 
     if (title) {
       mainUrlTitleCache.set(targetUrl, title);

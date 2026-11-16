@@ -3,7 +3,7 @@ const LinkifyIt = require('linkify-it');
 const tlds = require('tlds');
 const normalizeUrl = require('normalize-url');
 const { LRUCache } = require('lru-cache');
-const { escapeHtml } = require('./utils');
+const { escapeHtml, cleanUrlTitleString } = require('./utils');
 const {
   getTickerFgColor,
   getTickerBgColor,
@@ -186,29 +186,23 @@ function getCanonicalUrlForTitleKey(rawUrl) {
   }
 }
 
-function cleanUrlTitleString(rawTitle, rawUrl = '') {
-  if (!rawTitle || typeof rawTitle !== 'string') return '';
-  const cleaned = rawTitle
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  if (!cleaned) return '';
-  if (/^https?:\/\/\S+$/i.test(cleaned)) return '';
-  if (rawUrl && cleaned.toLowerCase() === String(rawUrl).trim().toLowerCase()) return '';
-  return cleaned;
-}
-
 function ensureUrlTitleCacheHydrated() {
   if (urlTitleCacheHydrated) return;
   urlTitleCacheHydrated = true;
   try {
     const stored = getUrlTitlesCache();
     if (stored && typeof stored === 'object') {
+      let pruned = false;
       for (const [k, v] of Object.entries(stored)) {
         const cleaned = cleanUrlTitleString(v, k);
         if (k && cleaned) {
           urlTitleMemoryCache.set(k, cleaned);
+        } else if (k) {
+          pruned = true;
         }
+      }
+      if (pruned) {
+        persistUrlTitleCacheToStorage();
       }
     }
   } catch (_) {}
@@ -681,6 +675,7 @@ module.exports = {
   getTickerStats,
   registerUrlTitle,
   registerUrlTitlesMap,
+  cleanUrlTitleString,
   getCachedUrlTitle,
   extractUrlsFromText,
   replaceUrlsWithTitles,

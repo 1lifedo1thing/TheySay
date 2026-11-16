@@ -63,6 +63,7 @@ const { requestNotificationPermission } = require('./notification');
 const {
   formatTextWithTickers,
   registerUrlTitlesMap,
+  cleanUrlTitleString,
   extractUrlsFromText,
   replaceUrlsWithTitles,
   sliceTextWithUrlTitles,
@@ -1566,16 +1567,24 @@ async function resolveSlotUrlTitles(slot, slots = []) {
   if (posts.length === 0) return;
 
   const urlToPosts = new Map();
+  let anyCleaned = false;
   for (const p of posts) {
     if (!p) continue;
     if (p.linkTitles && typeof p.linkTitles === 'object') {
+      for (const [k, v] of Object.entries(p.linkTitles)) {
+        if (!cleanUrlTitleString(v, k)) {
+          delete p.linkTitles[k];
+          anyCleaned = true;
+        }
+      }
       registerUrlTitlesMap(p.linkTitles, { persist: false });
     }
     const texts = [p.text, p.replyText, p.quoteText].filter(Boolean);
     for (const txt of texts) {
       const urls = extractUrlsFromText(txt);
       for (const u of urls) {
-        const existingLocal = p.linkTitles && p.linkTitles[u];
+        const rawExistingLocal = p.linkTitles && p.linkTitles[u];
+        const existingLocal = rawExistingLocal ? cleanUrlTitleString(rawExistingLocal, u) : '';
         if (existingLocal) continue;
         if (!urlToPosts.has(u)) {
           urlToPosts.set(u, []);
@@ -1585,33 +1594,35 @@ async function resolveSlotUrlTitles(slot, slots = []) {
     }
   }
 
-  if (urlToPosts.size === 0) return;
+  if (urlToPosts.size === 0 && !anyCleaned) return;
 
   slot._isResolvingUrlTitles = true;
   let anyResolved = false;
 
   try {
-    const limit = pLimit(4);
-    await Promise.all(
-      Array.from(urlToPosts.entries()).map(([url, targetPosts]) =>
-        limit(async () => {
-          try {
-            const title = await fetchUrlTitle(url);
-            if (title) {
-              anyResolved = true;
-              for (const tp of targetPosts) {
-                if (!tp.linkTitles || typeof tp.linkTitles !== 'object') {
-                  tp.linkTitles = {};
+    if (urlToPosts.size > 0) {
+      const limit = pLimit(4);
+      await Promise.all(
+        Array.from(urlToPosts.entries()).map(([url, targetPosts]) =>
+          limit(async () => {
+            try {
+              const title = await fetchUrlTitle(url);
+              if (title) {
+                anyResolved = true;
+                for (const tp of targetPosts) {
+                  if (!tp.linkTitles || typeof tp.linkTitles !== 'object') {
+                    tp.linkTitles = {};
+                  }
+                  tp.linkTitles[url] = title;
                 }
-                tp.linkTitles[url] = title;
               }
-            }
-          } catch (_) {}
-        })
-      )
-    );
+            } catch (_) {}
+          })
+        )
+      );
+    }
 
-    if (anyResolved && Array.isArray(slot.loadedPosts) && slot.loadedPosts.length > 0) {
+    if ((anyResolved || anyCleaned) && Array.isArray(slot.loadedPosts) && slot.loadedPosts.length > 0) {
       const activeKeywords = getFilterKeywords();
       const handle = slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '');
       const avatarUrl = (slot.avatarImg && slot.avatarImg.src) || '';

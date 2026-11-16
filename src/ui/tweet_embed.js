@@ -218,7 +218,9 @@ function fetchFullTweetData(tweetId) {
             codePointLength: Array.from(text).length,
             entities,
             images,
-            isMemberOnly: Boolean(tweet.is_member_only || tweet.is_subscriber_only)
+            isMemberOnly: Boolean(tweet.is_member_only || tweet.is_subscriber_only),
+            authorName: (tweet.author && tweet.author.name) || '',
+            authorHandle: (tweet.author && tweet.author.screen_name) || ''
           };
         }
       }
@@ -238,7 +240,9 @@ function fetchFullTweetData(tweetId) {
             codePointLength: Array.from(text).length,
             entities: null,
             images,
-            isMemberOnly: false
+            isMemberOnly: false,
+            authorName: String(data.user_name || ''),
+            authorHandle: String(data.user_screen_name || '')
           };
         }
       }
@@ -266,7 +270,9 @@ function fetchFullTweetData(tweetId) {
               codePointLength: Array.from(text).length,
               entities: null,
               images,
-              isMemberOnly
+              isMemberOnly,
+              authorName: (data.user && data.user.name) || '',
+              authorHandle: (data.user && data.user.screen_name) || ''
             };
           }
         }
