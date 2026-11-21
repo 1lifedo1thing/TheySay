@@ -1563,7 +1563,7 @@ async function fetchDiscordSlot(slotIndex, { isBackground = false } = {}, { slot
       const merged = processAndSortPosts([...liveExistingMessages, ...filteredCollected]);
       renderSlotPosts(
         slot,
-        merged.slice(-Math.max(MAX_DISCORD_MESSAGES, liveExistingMessages.length)),
+        merged,
         rawInput,
         meta.iconUrl || null,
         slots,

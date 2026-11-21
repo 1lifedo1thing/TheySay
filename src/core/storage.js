@@ -60,7 +60,136 @@ const { getPostKey, getPostTimestamp, parseFilterKeywordsInput } = require('./po
 const { getCurrentLanguage, setActiveLanguageOverride } = require('./i18n');
 const { colord } = require('colord');
 
-const MAX_CACHE_TRACKED_KEYS = 500;
+let fallbackMemoryDb = null;
+
+function sanitizeForIpc(value) {
+  if (value === null || value === undefined) return value;
+  const t = typeof value;
+  if (t === 'function' || t === 'symbol') return undefined;
+  if (t !== 'object') return value;
+  if (Array.isArray(value)) {
+    const out = [];
+    for (let i = 0; i < value.length; i++) {
+      const cleaned = sanitizeForIpc(value[i]);
+      if (cleaned !== undefined) out.push(cleaned);
+    }
+    return out;
+  }
+  const out = {};
+  for (const key of Object.keys(value)) {
+    if (key.startsWith('_')) continue;
+    const cleaned = sanitizeForIpc(value[key]);
+    if (cleaned !== undefined) out[key] = cleaned;
+  }
+  return out;
+}
+
+function getFallbackHistoryDb() {
+  if (!fallbackMemoryDb) {
+    const { HistoryDatabase } = require('./history-db');
+    fallbackMemoryDb = new HistoryDatabase(':memory:');
+  }
+  return fallbackMemoryDb;
+}
+
+function callHistoryDb(op, payload = {}) {
+  try {
+    const electron = require('electron');
+    const ipcRenderer = electron && electron.ipcRenderer;
+    if (ipcRenderer && typeof ipcRenderer.sendSync === 'function') {
+      const res = ipcRenderer.sendSync('history-db-sync', sanitizeForIpc({ op, ...payload }));
+      if (res && res.ok) {
+        return res.data;
+      }
+      return null;
+    }
+  } catch (_) {}
+
+  // Fallback for direct Node unit tests without Electron IPC
+  try {
+    const db = getFallbackHistoryDb();
+    switch (op) {
+      case 'getSlotCache':
+        return db.getSlotCache(payload.options || {});
+      case 'saveSlotEntry':
+        return db.saveSlotEntry(payload.slotIndex, payload.data);
+      case 'saveAllSlotCache':
+        return db.saveAllSlotCache(payload.cache);
+      case 'getTargetCache':
+        return db.getTargetCache(payload.options || {});
+      case 'saveTargetCache':
+        return db.saveTargetCache(payload.targetCache);
+      case 'saveTargetEntry':
+        return db.saveTargetEntry(payload.handleOrUrl, payload.data, payload.options || {});
+      case 'getTargetEntry':
+        return db.getTargetEntry(payload.handleOrUrl, payload.sourceHint, payload.options || {});
+      case 'markTargetPostsRead':
+        return db.markTargetPostsRead(
+          payload.handleOrUrl,
+          payload.sourceHint,
+          payload.postKeys,
+          payload.maxReadTimestamp
+        );
+      case 'markAllTargetPostsRead':
+        return db.markAllTargetPostsRead(
+          payload.handleOrUrl,
+          payload.sourceHint,
+          payload.maxReadTimestamp
+        );
+      case 'hasCachedPostsForSource':
+        return db.hasCachedPostsForSource(payload.source);
+      case 'migrateLegacyCaches':
+        return db.migrateLegacyCaches({
+          slotCache: payload.slotCache,
+          targetCache: payload.targetCache
+        });
+      case 'clearAll':
+        return db.clearAll();
+      case 'getStats':
+        return db.getStats();
+      default:
+        return null;
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+function migrateLegacyLocalStorageCachesIfNeeded() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const rawSlot = localStorage.getItem(STORAGE_CACHE_KEY);
+    const rawTarget = localStorage.getItem(STORAGE_TARGET_CACHE_KEY);
+    const rawTargetV1 = localStorage.getItem('theysay_target_cache_v1');
+    if (rawSlot === null && rawTarget === null && rawTargetV1 === null) return;
+
+    let slotCache = null;
+    let targetCache = null;
+    if (rawSlot) {
+      try {
+        const parsed = JSON.parse(rawSlot);
+        if (parsed && typeof parsed === 'object') slotCache = parsed;
+      } catch (_) {}
+    }
+    if (rawTarget) {
+      try {
+        const parsed = JSON.parse(rawTarget);
+        if (parsed && typeof parsed === 'object') targetCache = parsed;
+      } catch (_) {}
+    }
+
+    const hasAnyEntries =
+      (slotCache && Object.keys(slotCache).length > 0) ||
+      (targetCache && Object.keys(targetCache).length > 0);
+    if (hasAnyEntries) {
+      callHistoryDb('migrateLegacyCaches', { slotCache, targetCache });
+    }
+
+    localStorage.removeItem(STORAGE_CACHE_KEY);
+    localStorage.removeItem(STORAGE_TARGET_CACHE_KEY);
+    localStorage.removeItem('theysay_target_cache_v1');
+  } catch (_) {}
+}
 
 function readStorage(key) {
   try {
@@ -183,8 +312,8 @@ function mergeCacheEntryReadState(prevEntry, nextEntry) {
   const result = {
     ...nextEntry,
     posts: mergedPosts,
-    readKeys: Array.from(readSet).slice(-MAX_CACHE_TRACKED_KEYS),
-    knownKeys: Array.from(knownSet).slice(-MAX_CACHE_TRACKED_KEYS),
+    readKeys: Array.from(readSet),
+    knownKeys: Array.from(knownSet),
     maxReadTimestamp: maxReadTs,
     pinnedKeys,
     pinnedPosts,
@@ -259,10 +388,11 @@ function saveMutedSlotsArray(mutedArray) {
   } catch (e) {}
 }
 
-function getTargetCache() {
+function getTargetCache(options = {}) {
   try {
-    const raw = localStorage.getItem(STORAGE_TARGET_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    migrateLegacyLocalStorageCachesIfNeeded();
+    const res = callHistoryDb('getTargetCache', { options });
+    return res && typeof res === 'object' ? res : {};
   } catch (e) {
     return {};
   }
@@ -270,66 +400,54 @@ function getTargetCache() {
 
 function saveTargetCache(targetCache) {
   try {
+    migrateLegacyLocalStorageCachesIfNeeded();
     if (targetCache && typeof targetCache === 'object') {
-      localStorage.setItem(STORAGE_TARGET_CACHE_KEY, JSON.stringify(targetCache));
+      callHistoryDb('saveTargetCache', { targetCache });
     }
   } catch (e) {}
 }
 
 function saveTargetCacheEntry(handleOrUrl, data) {
   try {
+    migrateLegacyLocalStorageCachesIfNeeded();
     const posts = getEntryPosts(data);
     if (!data || !Array.isArray(posts) || posts.length === 0) return;
     const rawTarget = handleOrUrl || data.handle || '';
     const key = getCanonicalTargetKey(rawTarget, data.source);
     if (!key) return;
 
-    const targetCache = getTargetCache();
-    const prev = targetCache[key] || null;
-    const merged = mergeCacheEntryReadState(prev, {
-      ...data,
-      posts,
-      handle: data.handle || rawTarget,
-      lastFetchedAt: data.lastFetchedAt || (prev && prev.lastFetchedAt) || Date.now()
+    callHistoryDb('saveTargetEntry', {
+      handleOrUrl: rawTarget,
+      data: {
+        ...data,
+        posts,
+        handle: data.handle || rawTarget
+      },
+      options: { replacePosts: true, allowEmptyPosts: false }
     });
-    targetCache[key] = merged;
-    saveTargetCache(targetCache);
   } catch (e) {}
 }
 
-function getTargetCacheEntry(handleOrUrl, sourceHint) {
+function getTargetCacheEntry(handleOrUrl, sourceHint, options = {}) {
   try {
+    migrateLegacyLocalStorageCachesIfNeeded();
     const key = getCanonicalTargetKey(handleOrUrl, sourceHint);
     if (!key) return null;
-
-    const targetCache = getTargetCache();
-    const cachedPosts = getEntryPosts(targetCache[key]);
-    if (targetCache[key] && Array.isArray(cachedPosts) && cachedPosts.length > 0) {
-      return { ...targetCache[key], posts: cachedPosts };
-    }
-
-    // Fallback: scan slot cache in case an entry exists there that hasn't been indexed yet
-    const slotCache = getSlotCache();
-    for (const slotKey of Object.keys(slotCache)) {
-      const entry = slotCache[slotKey];
-      const entryPosts = getEntryPosts(entry);
-      if (entry && Array.isArray(entryPosts) && entryPosts.length > 0) {
-        const entryTargetKey = getCanonicalTargetKey(entry.handle, entry.source);
-        if (entryTargetKey === key) {
-          const normalized = { ...entry, posts: entryPosts };
-          saveTargetCacheEntry(entry.handle, normalized);
-          return normalized;
-        }
-      }
-    }
+    const res = callHistoryDb('getTargetEntry', {
+      handleOrUrl,
+      sourceHint,
+      options
+    });
+    return res && typeof res === 'object' ? res : null;
   } catch (e) {}
   return null;
 }
 
-function getSlotCache() {
+function getSlotCache(options = {}) {
   try {
-    const raw = localStorage.getItem(STORAGE_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    migrateLegacyLocalStorageCachesIfNeeded();
+    const res = callHistoryDb('getSlotCache', { options });
+    return res && typeof res === 'object' ? res : {};
   } catch (e) {
     return {};
   }
@@ -337,65 +455,92 @@ function getSlotCache() {
 
 function saveSlotCache(slotIndex, data, slots = []) {
   try {
-    const cache = getSlotCache();
+    migrateLegacyLocalStorageCachesIfNeeded();
     if (data) {
       const slotObj = slots[slotIndex];
-      const prevSlotEntry = cache[slotIndex] || null;
-      const sameTargetPrev =
-        prevSlotEntry &&
-        getCanonicalTargetKey(prevSlotEntry.handle, prevSlotEntry.source) ===
-          getCanonicalTargetKey(data.handle, data.source)
-          ? prevSlotEntry
-          : null;
-      const entry = mergeCacheEntryReadState(sameTargetPrev, {
-        ...data,
-        isMuted: typeof data.isMuted === 'boolean'
-          ? data.isMuted
-          : (slotObj && typeof slotObj.isMuted === 'boolean' ? slotObj.isMuted : DEFAULT_SLOT_MUTED),
-        lastFetchedAt: data.lastFetchedAt || (slotObj && slotObj.lastFetchedAt) || null
+      callHistoryDb('saveSlotEntry', {
+        slotIndex,
+        data: {
+          ...data,
+          isMuted: typeof data.isMuted === 'boolean'
+            ? data.isMuted
+            : (slotObj && typeof slotObj.isMuted === 'boolean' ? slotObj.isMuted : DEFAULT_SLOT_MUTED),
+          lastFetchedAt: data.lastFetchedAt || (slotObj && slotObj.lastFetchedAt) || null
+        }
       });
-      cache[slotIndex] = entry;
-      // Archive into per-target cache so switching handles never loses scraped data
-      saveTargetCacheEntry(entry.handle, entry);
     } else {
-      // Preserve existing scraped data in per-target cache before removing slot binding
-      const prevPosts = getEntryPosts(cache[slotIndex]);
-      if (cache[slotIndex] && Array.isArray(prevPosts) && prevPosts.length > 0) {
-        saveTargetCacheEntry(cache[slotIndex].handle, cache[slotIndex]);
-      }
-      delete cache[slotIndex];
+      callHistoryDb('saveSlotEntry', { slotIndex, data: null });
     }
-    localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(cache));
   } catch (e) {}
 }
 
 function saveAllSlotCache(cache) {
   try {
+    migrateLegacyLocalStorageCachesIfNeeded();
     if (cache && typeof cache === 'object') {
-      const existingSlotCache = getSlotCache();
-      const targetCache = getTargetCache();
-      let updatedTarget = false;
-      for (const slotKey of Object.keys(cache)) {
-        const entry = cache[slotKey];
-        const entryPosts = getEntryPosts(entry);
-        if (entry && Array.isArray(entryPosts) && entryPosts.length > 0) {
-          const prevSlot = existingSlotCache[slotKey];
-          const key = getCanonicalTargetKey(entry.handle, entry.source);
-          const prevTarget = key ? targetCache[key] : null;
-          const merged = mergeCacheEntryReadState(prevTarget || prevSlot, entry);
-          cache[slotKey] = merged;
-          if (key) {
-            targetCache[key] = { ...merged };
-            updatedTarget = true;
-          }
-        }
-      }
-      if (updatedTarget) {
-        saveTargetCache(targetCache);
-      }
+      callHistoryDb('saveAllSlotCache', { cache });
     }
-    localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(cache));
   } catch (e) {}
+}
+
+function markTargetPostsRead(handleOrUrl, sourceHint, postKeys = [], maxReadTimestamp = 0) {
+  try {
+    migrateLegacyLocalStorageCachesIfNeeded();
+    return Boolean(
+      callHistoryDb('markTargetPostsRead', {
+        handleOrUrl,
+        sourceHint,
+        postKeys,
+        maxReadTimestamp
+      })
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function markAllTargetPostsRead(handleOrUrl, sourceHint, maxReadTimestamp = 0) {
+  try {
+    migrateLegacyLocalStorageCachesIfNeeded();
+    return Boolean(
+      callHistoryDb('markAllTargetPostsRead', {
+        handleOrUrl,
+        sourceHint,
+        maxReadTimestamp
+      })
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function hasCachedPostsForSource(source) {
+  try {
+    migrateLegacyLocalStorageCachesIfNeeded();
+    return Boolean(callHistoryDb('hasCachedPostsForSource', { source }));
+  } catch (e) {
+    return false;
+  }
+}
+
+function clearAllPostCache() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_CACHE_KEY);
+      localStorage.removeItem(STORAGE_TARGET_CACHE_KEY);
+      localStorage.removeItem('theysay_target_cache_v1');
+    }
+    callHistoryDb('clearAll');
+  } catch (e) {}
+}
+
+function getHistoryDbStats() {
+  try {
+    migrateLegacyLocalStorageCachesIfNeeded();
+    return callHistoryDb('getStats') || { dbPath: '', targetCount: 0, slotCount: 0, postCount: 0 };
+  } catch (e) {
+    return { dbPath: '', targetCount: 0, slotCount: 0, postCount: 0 };
+  }
 }
 
 function getSavedGridLayout() {
@@ -732,7 +877,7 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
 
   const savedHandles = getSavedHandles();
   const savedMuted = getMutedSlots();
-  const slotCache = getSlotCache();
+  const slotCache = getSlotCache({ includePosts: false });
   const gridLayout = getSavedGridLayout() || [];
 
   const layoutBySlot = {};
@@ -766,7 +911,9 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
     const isMuted = slot && typeof slot.isMuted === 'boolean'
       ? slot.isMuted
       : (typeof savedMuted[i] === 'boolean' ? savedMuted[i] : DEFAULT_SLOT_MUTED);
-    const targetCached = handle ? (getTargetCacheEntry(handle) || cached) : cached;
+    const targetCached = handle
+      ? (getTargetCacheEntry(handle, undefined, { includePosts: false }) || cached)
+      : cached;
 
     const source = handle ? detectSourceType(handle) : (slot && slot.source) || targetCached.source || 'twitter';
     const displayName = (slot && slot.authorName && slot.authorName.innerText.trim()) || targetCached.displayName || '';
@@ -895,6 +1042,11 @@ module.exports = {
   getSlotCache,
   saveSlotCache,
   saveAllSlotCache,
+  markTargetPostsRead,
+  markAllTargetPostsRead,
+  hasCachedPostsForSource,
+  clearAllPostCache,
+  getHistoryDbStats,
   getSavedGridLayout,
   saveRawGridLayout,
   saveGridLayout,

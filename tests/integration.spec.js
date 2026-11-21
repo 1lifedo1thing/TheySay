@@ -309,7 +309,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache(cache);
       },
       {
         timestamp: nowIso,
@@ -596,12 +598,14 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             };
           })
         });
-        localStorage.setItem(cacheKey, JSON.stringify({
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache({
           0: feed('elonmusk', 'Elon'),
           1: feed('OpenAI', 'OpenAI'),
           2: feed('nasa', 'NASA'),
           3: feed('github', 'GitHub')
-        }));
+        });
       },
       { handlesKey: STORAGE_HANDLES_KEY, cacheKey: STORAGE_CACHE_KEY }
     );
@@ -791,7 +795,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache(cache);
       },
       {
         timestamp: nowIso,
@@ -1037,7 +1043,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache(cache);
       },
       {
         times: [t0, t1, t2, t3],
@@ -1381,7 +1389,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache(cache);
       },
       {
         handlesKey: STORAGE_HANDLES_KEY,
@@ -1565,13 +1575,12 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
         localStorage.removeItem('theysay_threads_logged_in');
         localStorage.removeItem('theysay_threads_ever_logged_in');
         localStorage.removeItem('theysay_threads_login_expired');
-        localStorage.removeItem('theysay_target_cache');
-        localStorage.removeItem('theysay_target_cache_v1');
+        const { clearAllPostCache } = require('./src/core/storage');
+        clearAllPostCache();
 
         const handles = ['elonmusk', '', '', ''];
         while (handles.length < 16) handles.push('');
         localStorage.setItem(handlesKey, JSON.stringify(handles));
-        localStorage.setItem(cacheKey, JSON.stringify({}));
       },
       {
         handlesKey: STORAGE_HANDLES_KEY,
@@ -1641,7 +1650,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+        saveAllSlotCache(cache);
       },
       {
         handlesKey: STORAGE_HANDLES_KEY,
@@ -1802,7 +1813,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
               ]
             }
           };
-          localStorage.setItem(cacheKey, JSON.stringify(cache));
+          const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+          clearAllPostCache();
+          saveAllSlotCache(cache);
         },
         {
           handlesKey: STORAGE_HANDLES_KEY,
@@ -2524,7 +2537,8 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.evaluate(
       ({ handlesKey, cacheKey, onboardingKey }) => {
         localStorage.setItem(onboardingKey, '1');
-        localStorage.removeItem('theysay_target_cache');
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
         const handles = ['threads:@zuck', '', '', ''];
         while (handles.length < 16) handles.push('');
         localStorage.setItem(handlesKey, JSON.stringify(handles));
@@ -2577,7 +2591,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
             ]
           }
         };
-        localStorage.setItem(cacheKey, JSON.stringify(cache));
+        saveAllSlotCache(cache);
       },
       {
         handlesKey: STORAGE_HANDLES_KEY,
@@ -2681,6 +2695,222 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await expect(timelineBubbles.nth(0).locator('.im-text-content')).toContainText('First chronological post');
     await expect(timelineBubbles.nth(1).locator('.im-text-content')).toContainText('Second chronological post');
     await expect(timelineBubbles.nth(2).locator('.im-text-content')).toContainText('Third chronological post');
+  });
+
+  test('25. SQLite (better-sqlite3) history storage retains all historical messages without 20/40 truncation and migrates legacy localStorage', async () => {
+    // 1. Seed 35 Twitter posts (>20) and 55 Discord messages (>40) via SQLite storage
+    await page.evaluate(
+      ({ handlesKey, onboardingKey }) => {
+        localStorage.setItem(onboardingKey, '1');
+        const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
+        clearAllPostCache();
+
+        const handles = [
+          'history_tw',
+          'https://discord.com/channels/900001/900002',
+          '',
+          ''
+        ];
+        while (handles.length < 16) handles.push('');
+        localStorage.setItem(handlesKey, JSON.stringify(handles));
+
+        const baseTime = Date.parse('2026-10-01T00:00:00.000Z');
+        const twPosts = Array.from({ length: 35 }, (_, i) => ({
+          id: String(800000 + i),
+          text: `Twitter history post #${i}`,
+          datetime: new Date(baseTime + i * 3600000).toISOString(),
+          time: new Date(baseTime + i * 3600000).toISOString(),
+          displayName: 'History Author',
+          userHandle: '@history_tw',
+          url: `https://x.com/history_tw/status/${800000 + i}`,
+          isUnread: i >= 33,
+          images: []
+        }));
+
+        const dcPosts = Array.from({ length: 55 }, (_, i) => ({
+          id: String(900000 + i),
+          source: 'discord',
+          text: `Discord history message #${i}`,
+          datetime: new Date(baseTime + i * 1800000).toISOString(),
+          time: new Date(baseTime + i * 1800000).toISOString(),
+          displayName: `Member${i % 3}`,
+          url: `https://discord.com/channels/900001/900002/${900000 + i}`,
+          isUnread: i === 54,
+          images: []
+        }));
+
+        saveAllSlotCache({
+          0: {
+            handle: 'history_tw',
+            source: 'twitter',
+            displayName: 'History Author',
+            userHandle: '@history_tw',
+            avatarUrl: '',
+            lastFetchedAt: Date.now(),
+            posts: twPosts
+          },
+          1: {
+            handle: 'https://discord.com/channels/900001/900002',
+            source: 'discord',
+            sourceTitle: '#history-log',
+            sourceSubtitle: 'ArchiveServer',
+            displayName: '#history-log',
+            userHandle: 'ArchiveServer',
+            avatarUrl: '',
+            lastFetchedAt: Date.now(),
+            posts: dcPosts
+          }
+        });
+      },
+      {
+        handlesKey: STORAGE_HANDLES_KEY,
+        onboardingKey: STORAGE_ONBOARDING_COMPLETED_KEY
+      }
+    );
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    // All 35 Twitter posts and all 55 Discord messages must render without hiding older items
+    const twBubbles = page.locator('#slot-posts-list-0 .im-bubble');
+    const dcBubbles = page.locator('#slot-posts-list-1 .im-bubble');
+    await expect(twBubbles).toHaveCount(35);
+    await expect(twBubbles.nth(0).locator('.im-text-content')).toContainText('Twitter history post #0');
+    await expect(twBubbles.nth(34).locator('.im-text-content')).toContainText('Twitter history post #34');
+    await expect(page.locator('#slot-unread-badge-0')).toHaveText('2');
+
+    await expect(dcBubbles).toHaveCount(55);
+    await expect(dcBubbles.nth(0).locator('.im-text-content')).toContainText('Discord history message #0');
+    await expect(dcBubbles.nth(54).locator('.im-text-content')).toContainText('Discord history message #54');
+    await expect(page.locator('#slot-unread-badge-1')).toHaveText('1');
+
+    // Verify SQLite file exists on disk in userData and localStorage is completely unused for message caches
+    const dbFilePath = path.join(userDataDir, 'theysay.db');
+    expect(fs.existsSync(dbFilePath)).toBe(true);
+
+    const storageAudit = await page.evaluate(
+      ({ cacheKey }) => {
+        const { getHistoryDbStats } = require('./src/core/storage');
+        return {
+          localSlotCache: localStorage.getItem(cacheKey),
+          localTargetCache: localStorage.getItem('theysay_target_cache'),
+          stats: getHistoryDbStats()
+        };
+      },
+      { cacheKey: STORAGE_CACHE_KEY }
+    );
+    expect(storageAudit.localSlotCache).toBeNull();
+    expect(storageAudit.localTargetCache).toBeNull();
+    expect(storageAudit.stats.postCount).toBe(90);
+    expect(storageAudit.stats.slotCount).toBe(2);
+    expect(storageAudit.stats.targetCount).toBe(2);
+
+    // 2. Mark one unread Twitter bubble as read via hover (fast SQLite markTargetPostsRead) and verify reload persistence
+    await twBubbles.nth(33).hover();
+    await expect(page.locator('#slot-unread-badge-0')).toHaveText('1');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#slot-unread-badge-0')).toHaveText('1');
+    await expect(twBubbles).toHaveCount(35);
+
+    // 3. Clearing slot 0 removes the slot binding while preserving all 35 historical posts in SQLite target archive
+    const archiveCheck = await page.evaluate(() => {
+      const { saveSlotCache, getSlotCache, getTargetCacheEntry } = require('./src/core/storage');
+      saveSlotCache(0, null);
+      const slotsAfterClear = getSlotCache();
+      const archived = getTargetCacheEntry('history_tw', 'twitter');
+      return {
+        slot0Exists: Boolean(slotsAfterClear[0]),
+        archivedCount: archived && Array.isArray(archived.posts) ? archived.posts.length : 0
+      };
+    });
+    expect(archiveCheck.slot0Exists).toBe(false);
+    expect(archiveCheck.archivedCount).toBe(35);
+
+    // 4. Legacy localStorage -> SQLite one-time automatic migration
+    await page.evaluate(
+      ({ handlesKey, cacheKey }) => {
+        const { clearAllPostCache } = require('./src/core/storage');
+        clearAllPostCache();
+        const handles = ['legacy_migrated', '', '', ''];
+        while (handles.length < 16) handles.push('');
+        localStorage.setItem(handlesKey, JSON.stringify(handles));
+
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            0: {
+              handle: 'legacy_migrated',
+              source: 'twitter',
+              displayName: 'Legacy User',
+              userHandle: '@legacy_migrated',
+              avatarUrl: '',
+              lastFetchedAt: Date.now(),
+              posts: [
+                {
+                  id: '777001',
+                  text: 'Migrated from legacy localStorage slot cache',
+                  datetime: '2026-10-20T10:00:00.000Z',
+                  time: '2026-10-20T10:00:00.000Z',
+                  displayName: 'Legacy User',
+                  userHandle: '@legacy_migrated',
+                  url: 'https://x.com/legacy_migrated/status/777001',
+                  isUnread: false,
+                  images: []
+                }
+              ]
+            }
+          })
+        );
+        localStorage.setItem(
+          'theysay_target_cache',
+          JSON.stringify({
+            'twitter:legacy_migrated': {
+              handle: 'legacy_migrated',
+              source: 'twitter',
+              displayName: 'Legacy User',
+              userHandle: '@legacy_migrated',
+              posts: [
+                {
+                  id: '777000',
+                  text: 'Older post migrated from legacy target cache',
+                  datetime: '2026-10-19T10:00:00.000Z',
+                  time: '2026-10-19T10:00:00.000Z',
+                  displayName: 'Legacy User',
+                  userHandle: '@legacy_migrated',
+                  url: 'https://x.com/legacy_migrated/status/777000',
+                  isUnread: false,
+                  images: []
+                }
+              ]
+            }
+          })
+        );
+      },
+      {
+        handlesKey: STORAGE_HANDLES_KEY,
+        cacheKey: STORAGE_CACHE_KEY
+      }
+    );
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    const migratedBubbles = page.locator('#slot-posts-list-0 .im-bubble');
+    await expect(migratedBubbles).toHaveCount(2);
+    await expect(migratedBubbles.nth(0).locator('.im-text-content')).toContainText(
+      'Older post migrated from legacy target cache'
+    );
+    await expect(migratedBubbles.nth(1).locator('.im-text-content')).toContainText(
+      'Migrated from legacy localStorage slot cache'
+    );
+
+    const postMigrationCheck = await page.evaluate(
+      ({ cacheKey }) => ({
+        localSlotCache: localStorage.getItem(cacheKey),
+        localTargetCache: localStorage.getItem('theysay_target_cache')
+      }),
+      { cacheKey: STORAGE_CACHE_KEY }
+    );
+    expect(postMigrationCheck.localSlotCache).toBeNull();
+    expect(postMigrationCheck.localTargetCache).toBeNull();
   });
 });
 

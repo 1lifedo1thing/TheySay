@@ -801,9 +801,8 @@ async function fetchTwitterSlot(
         const unreadNewPosts = filteredNewPosts.filter(p => p.isUnread);
         const merged = [...liveExistingPosts, ...filteredNewPosts];
         const sorted = processAndSortPosts(merged);
-        const finalPosts = sorted.slice(-Math.max(20, liveExistingPosts.length));
-        recordSlotReadPosts(slot, finalPosts);
-        renderSlotPosts(slot, finalPosts, handle, latestAvatarUrl, slots);
+        recordSlotReadPosts(slot, sorted);
+        renderSlotPosts(slot, sorted, handle, latestAvatarUrl, slots);
         if (unreadNewPosts.length > 0) {
           showToast(t('scraper.newPostsToast', { handle, count: unreadNewPosts.length }), 'success', 2500);
           notifySlotNewMessages(slot, unreadNewPosts);
@@ -814,9 +813,8 @@ async function fetchTwitterSlot(
     } else {
       if (filteredNewPosts.length > 0 || seenInThisRun.size > 0) {
         const sorted = processAndSortPosts(filteredNewPosts);
-        const finalPosts = sorted.slice(-20);
-        recordSlotReadPosts(slot, finalPosts);
-        renderSlotPosts(slot, finalPosts, handle, latestAvatarUrl, slots);
+        recordSlotReadPosts(slot, sorted);
+        renderSlotPosts(slot, sorted, handle, latestAvatarUrl, slots);
       } else {
         showSlotError(slot, t('scraper.fetchTimeoutError'));
       }

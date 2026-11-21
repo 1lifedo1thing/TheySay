@@ -686,9 +686,8 @@ async function fetchThreadsSlot(
         const unreadNewPosts = filteredNewPosts.filter(p => p.isUnread);
         const merged = [...liveExistingPosts, ...filteredNewPosts];
         const sorted = processAndSortPosts(merged);
-        const finalPosts = sorted.slice(-Math.max(20, liveExistingPosts.length));
-        recordSlotReadPosts(slot, finalPosts);
-        renderSlotPosts(slot, finalPosts, rawInput, latestAvatarUrl, slots, renderMeta);
+        recordSlotReadPosts(slot, sorted);
+        renderSlotPosts(slot, sorted, rawInput, latestAvatarUrl, slots, renderMeta);
         if (unreadNewPosts.length > 0) {
           showToast(t('threads.newPostsToast', { handle, count: unreadNewPosts.length }), 'success', 2500);
           notifySlotNewMessages(slot, unreadNewPosts);
@@ -699,9 +698,8 @@ async function fetchThreadsSlot(
     } else {
       if (filteredNewPosts.length > 0 || seenInThisRun.size > 0) {
         const sorted = processAndSortPosts(filteredNewPosts);
-        const finalPosts = sorted.slice(-20);
-        recordSlotReadPosts(slot, finalPosts);
-        renderSlotPosts(slot, finalPosts, rawInput, latestAvatarUrl, slots, renderMeta);
+        recordSlotReadPosts(slot, sorted);
+        renderSlotPosts(slot, sorted, rawInput, latestAvatarUrl, slots, renderMeta);
       } else {
         showSlotError(slot, t('threads.fetchTimeoutError'));
       }

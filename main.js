@@ -21,6 +21,7 @@ const {
   downloadUpdate,
   applyDownloadedUpdate
 } = require('./src/core/updater');
+const { HistoryDatabase } = require('./src/core/history-db');
 const TICKER_DATA_PATH = path
   .join(__dirname, 'data', 'ticker-data.json')
   .replace('app.asar', 'app.asar.unpacked');
@@ -64,6 +65,83 @@ const windowStateStore = new Store({
   name: 'window-state',
   cwd: app.getPath('userData'),
   clearInvalidConfig: true
+});
+
+let historyDb = null;
+
+function getHistoryDb() {
+  if (!historyDb) {
+    const dbPath = path.join(app.getPath('userData'), 'theysay.db');
+    historyDb = new HistoryDatabase(dbPath);
+  }
+  return historyDb;
+}
+
+ipcMain.on('history-db-sync', (event, req) => {
+  try {
+    const db = getHistoryDb();
+    const op = req && req.op;
+    let data = null;
+    switch (op) {
+      case 'getSlotCache':
+        data = db.getSlotCache(req.options || {});
+        break;
+      case 'saveSlotEntry':
+        data = db.saveSlotEntry(req.slotIndex, req.data);
+        break;
+      case 'saveAllSlotCache':
+        data = db.saveAllSlotCache(req.cache);
+        break;
+      case 'getTargetCache':
+        data = db.getTargetCache(req.options || {});
+        break;
+      case 'saveTargetCache':
+        data = db.saveTargetCache(req.targetCache);
+        break;
+      case 'saveTargetEntry':
+        data = db.saveTargetEntry(req.handleOrUrl, req.data, req.options || {});
+        break;
+      case 'getTargetEntry':
+        data = db.getTargetEntry(req.handleOrUrl, req.sourceHint, req.options || {});
+        break;
+      case 'markTargetPostsRead':
+        data = db.markTargetPostsRead(
+          req.handleOrUrl,
+          req.sourceHint,
+          req.postKeys,
+          req.maxReadTimestamp
+        );
+        break;
+      case 'markAllTargetPostsRead':
+        data = db.markAllTargetPostsRead(
+          req.handleOrUrl,
+          req.sourceHint,
+          req.maxReadTimestamp
+        );
+        break;
+      case 'hasCachedPostsForSource':
+        data = db.hasCachedPostsForSource(req.source);
+        break;
+      case 'migrateLegacyCaches':
+        data = db.migrateLegacyCaches({
+          slotCache: req.slotCache,
+          targetCache: req.targetCache
+        });
+        break;
+      case 'clearAll':
+        data = db.clearAll();
+        break;
+      case 'getStats':
+        data = db.getStats();
+        break;
+      default:
+        throw new Error(`Unknown history-db op: ${op}`);
+    }
+    event.returnValue = { ok: true, data };
+  } catch (err) {
+    console.warn('[HistoryDB] IPC error:', err && err.message ? err.message : err);
+    event.returnValue = { ok: false, error: err && err.message ? err.message : String(err) };
+  }
 });
 
 function loadSavedLanguagePreference() {
@@ -1954,6 +2032,7 @@ app.whenReady().then(() => {
     setActiveLanguageOverride(savedLangPref);
   }
 
+  getHistoryDb();
   createWindow();
 
   app.on('activate', () => {
@@ -1965,6 +2044,15 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   flushAllSessionsStorageData();
+});
+
+app.on('will-quit', () => {
+  if (historyDb) {
+    try {
+      historyDb.close();
+    } catch (_) {}
+    historyDb = null;
+  }
 });
 
 app.on('window-all-closed', () => {

@@ -42,6 +42,8 @@ const {
   getSlotCache,
   saveSlotCache,
   saveAllSlotCache,
+  markTargetPostsRead,
+  markAllTargetPostsRead,
   getShowMemberOnlyPosts,
   getFilterKeywords,
   getAppBadgeEnabled
@@ -454,13 +456,21 @@ function markSlotPostsAsRead(slot, slots = []) {
     }
   }
   if (updated && Array.isArray(slot.loadedPosts) && slot.loadedPosts.length > 0) {
-    persistSlot(slot, {
-      handle: slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : ''),
-      displayName: slot.authorName ? slot.authorName.innerText : '',
-      userHandle: slot.authorHandle ? (slot.authorHandle.textContent || slot.authorHandle.innerText) : '',
-      posts: slot.loadedPosts,
-      avatarUrl: (slot.avatarImg && slot.avatarImg.src) || ''
-    }, slots);
+    const targetHandle = slot.monitoredHandle || (slot.handleInput ? slot.handleInput.value.trim() : '');
+    const markedInDb = markAllTargetPostsRead(
+      targetHandle,
+      slot.source,
+      slot.maxReadTimestamp || 0
+    );
+    if (!markedInDb) {
+      persistSlot(slot, {
+        handle: targetHandle,
+        displayName: slot.authorName ? slot.authorName.innerText : '',
+        userHandle: slot.authorHandle ? (slot.authorHandle.textContent || slot.authorHandle.innerText) : '',
+        posts: slot.loadedPosts,
+        avatarUrl: (slot.avatarImg && slot.avatarImg.src) || ''
+      }, slots);
+    }
   }
   updateSlotUnreadBadge(slot, slots);
   return updated;
@@ -1246,7 +1256,17 @@ function renderSlotPosts(slot, posts, handle, avatarUrl = null, slots = [], meta
     if (changed) {
       recordSlotReadPosts(slot, slot.loadedPosts);
       updateSlotUnreadBadge(slot);
-      persistSlot(slot, { handle, displayName, userHandle, posts: slot.loadedPosts, avatarUrl: finalAvatar }, slots);
+      const markedInDb =
+        targetKeys.size > 0 &&
+        markTargetPostsRead(
+          handle,
+          slot.source,
+          Array.from(targetKeys),
+          slot.maxReadTimestamp || 0
+        );
+      if (!markedInDb) {
+        persistSlot(slot, { handle, displayName, userHandle, posts: slot.loadedPosts, avatarUrl: finalAvatar }, slots);
+      }
     }
   };
 
@@ -2470,15 +2490,6 @@ function loadSlotCache(slots) {
       registeredSlots = slots;
     }
     const cache = getSlotCache();
-
-    // First, ensure every existing slot cache entry is indexed in per-target cache
-    for (const slotKey of Object.keys(cache)) {
-      const entry = cache[slotKey];
-      const entryPosts = entry && (Array.isArray(entry.posts) ? entry.posts : entry.tweets);
-      if (entry && Array.isArray(entryPosts) && entryPosts.length > 0 && entry.handle) {
-        saveTargetCacheEntry(entry.handle, entry);
-      }
-    }
 
     slots.forEach(slot => {
       const currentInput = slot.handleInput ? slot.handleInput.value.trim() : '';

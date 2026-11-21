@@ -1,8 +1,7 @@
 const { ipcRenderer } = require('electron');
 const { DISCORD_WEBVIEW_ID } = require('../core/constants');
 const {
-  getSlotCache,
-  getTargetCache,
+  hasCachedPostsForSource,
   getDiscordLoggedIn,
   saveDiscordLoggedIn,
   getThreadsLoggedIn,
@@ -328,16 +327,6 @@ function syncAuthStateFromCache(slots = []) {
   try {
     let hasCachedDiscordPosts = false;
 
-    const checkEntry = (entry) => {
-      if (!entry || typeof entry !== 'object') return;
-      const posts = Array.isArray(entry.posts) ? entry.posts : (Array.isArray(entry.tweets) ? entry.tweets : []);
-      if (posts.length === 0) return;
-      const src = entry.source || (entry.handle ? detectSourceType(entry.handle) : '');
-      if (src === 'discord') {
-        hasCachedDiscordPosts = true;
-      }
-    };
-
     if (Array.isArray(slots)) {
       slots.forEach((slot) => {
         if (!slot) return;
@@ -348,11 +337,9 @@ function syncAuthStateFromCache(slots = []) {
       });
     }
 
-    const slotCache = getSlotCache();
-    Object.values(slotCache || {}).forEach(checkEntry);
-
-    const targetCache = getTargetCache();
-    Object.values(targetCache || {}).forEach(checkEntry);
+    if (!hasCachedDiscordPosts && hasCachedPostsForSource('discord')) {
+      hasCachedDiscordPosts = true;
+    }
 
     // Discord always requires authentication to fetch channel messages.
     // If cached Discord messages exist, the user definitely logged in previously.

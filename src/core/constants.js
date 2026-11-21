@@ -184,8 +184,8 @@ const DISCORD_PARTITION = 'persist:discord_session';
 const DISCORD_WEBVIEW_ID = 'discord-bg-webview';
 const DISCORD_LOGIN_URL = 'https://discord.com/login';
 
-// How many chat messages a Discord slot keeps. Chat channels are far chattier
-// than a Twitter timeline, so this is deliberately larger than the tweet cap.
+// Maximum number of new messages pulled per incremental scroll-back crawl in
+// Discord (all previously scraped historical messages are retained in SQLite).
 const MAX_DISCORD_MESSAGES = 40;
 
 // Threads runs in its own persistent session so X and Discord sessions remain isolated.

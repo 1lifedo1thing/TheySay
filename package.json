@@ -41,11 +41,13 @@
       "assets/**/*",
       "!assets/*.mp4"
     ],
+    "npmRebuild": false,
     "asarUnpack": [
       "data/**",
       "src/ui/tweet-embed-frame.html",
       "src/data/discord-preload.js",
-      "src/data/stealth-preload.js"
+      "src/data/stealth-preload.js",
+      "node_modules/better-sqlite3/prebuilds/**"
     ],
     "afterAllArtifactBuild": "scripts/notarize-mac.js",
     "publish": [
@@ -137,6 +139,7 @@
     "@mantine/notifications": "^8.1.1",
     "@tabler/icons-react": "^3.34.0",
     "an-array-of-english-words": "^2.0.0",
+    "better-sqlite3": "^13.2.0",
     "colord": "^2.10.0",
     "driver.js": "^1.10.2",
     "electron-store": "^8.2.0",

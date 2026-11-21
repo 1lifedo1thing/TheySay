@@ -442,8 +442,6 @@ function filterPostsByKeywords(posts, keywords) {
   return posts.filter(p => !doesPostMatchFilterKeywords(p, keywords));
 }
 
-const MAX_TRACKED_KEYS = 500;
-
 function getPostAllKeys(post) {
   if (!post) return [];
   const keys = [];
@@ -589,8 +587,8 @@ function serializeSlotReadTracking(slot) {
   }
   ensureSlotReadTracking(slot);
   return {
-    readKeys: Array.from(slot.readKeys).slice(-MAX_TRACKED_KEYS),
-    knownKeys: Array.from(slot.knownKeys).slice(-MAX_TRACKED_KEYS),
+    readKeys: Array.from(slot.readKeys),
+    knownKeys: Array.from(slot.knownKeys),
     maxReadTimestamp: slot.maxReadTimestamp || 0,
     pinnedKeys: Array.from(slot.pinnedKeys),
     pinnedPosts: Array.isArray(slot.pinnedPosts) ? slot.pinnedPosts : [],
