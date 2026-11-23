@@ -23,6 +23,7 @@ function calculateCellHeight(rows) {
 
 const MIN_GRID_DIM = 1;
 const MAX_GRID_DIM = 4;
+const MAX_LAYOUT_HISTORY = 50;
 
 function clampGridDim(val, fallback = 2) {
   if (!Number.isFinite(val)) return fallback;
@@ -35,6 +36,157 @@ function parsePreset(presetStr) {
   return {
     rows: clampGridDim(Number(match[1]), 2),
     cols: clampGridDim(Number(match[2]), 2)
+  };
+}
+
+function normalizeSnapshotItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .filter(item => item && typeof item === 'object' && Number.isFinite(item.slotIndex))
+    .map(item => ({
+      id: item.id || `slot-${item.slotIndex}`,
+      slotIndex: item.slotIndex,
+      x: typeof item.x === 'number' ? item.x : 0,
+      y: typeof item.y === 'number' ? item.y : 0,
+      w: typeof item.w === 'number' ? item.w : 1,
+      h: typeof item.h === 'number' ? item.h : 1
+    }))
+    .sort((a, b) => a.slotIndex - b.slotIndex);
+}
+
+function captureGridSnapshot(grid, rows, cols) {
+  const safeRows = clampGridDim(rows, 2);
+  const safeCols = clampGridDim(cols, 2);
+  const rawItems = [];
+  if (grid && typeof grid.getGridItems === 'function') {
+    grid.getGridItems().forEach(el => {
+      const node = el.gridstackNode || {};
+      const slotIndex = parseInt(el.getAttribute('data-slot-index'), 10);
+      if (!Number.isFinite(slotIndex)) return;
+      rawItems.push({
+        id: el.getAttribute('gs-id') || `slot-${slotIndex}`,
+        slotIndex,
+        x: typeof node.x === 'number' ? node.x : 0,
+        y: typeof node.y === 'number' ? node.y : 0,
+        w: typeof node.w === 'number' ? node.w : 1,
+        h: typeof node.h === 'number' ? node.h : 1
+      });
+    });
+  }
+  return {
+    rows: safeRows,
+    cols: safeCols,
+    preset: `${safeRows}x${safeCols}`,
+    items: normalizeSnapshotItems(rawItems)
+  };
+}
+
+function cloneSnapshot(snapshot) {
+  if (!snapshot) return null;
+  return {
+    rows: snapshot.rows,
+    cols: snapshot.cols,
+    preset: snapshot.preset,
+    items: normalizeSnapshotItems(snapshot.items)
+  };
+}
+
+function snapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.rows !== b.rows || a.cols !== b.cols) return false;
+  if (!Array.isArray(a.items) || !Array.isArray(b.items)) return false;
+  if (a.items.length !== b.items.length) return false;
+  for (let i = 0; i < a.items.length; i++) {
+    const ia = a.items[i];
+    const ib = b.items[i];
+    if (
+      ia.slotIndex !== ib.slotIndex ||
+      ia.x !== ib.x ||
+      ia.y !== ib.y ||
+      ia.w !== ib.w ||
+      ia.h !== ib.h
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function createLayoutHistory(maxEntries = MAX_LAYOUT_HISTORY) {
+  let current = null;
+  const undoStack = [];
+  const redoStack = [];
+  let restoring = false;
+  let interacting = false;
+
+  return {
+    reset(snapshot) {
+      current = cloneSnapshot(snapshot);
+      undoStack.length = 0;
+      redoStack.length = 0;
+    },
+    beginInteraction() {
+      interacting = true;
+    },
+    endInteraction(nextSnapshot) {
+      interacting = false;
+      return this.commit(nextSnapshot);
+    },
+    isInteracting() {
+      return interacting;
+    },
+    isRestoring() {
+      return restoring;
+    },
+    setRestoring(flag) {
+      restoring = Boolean(flag);
+    },
+    commit(nextSnapshot) {
+      if (restoring || interacting) return false;
+      const normalized = cloneSnapshot(nextSnapshot);
+      if (!normalized) return false;
+      if (!current) {
+        current = normalized;
+        return false;
+      }
+      if (snapshotsEqual(current, normalized)) {
+        return false;
+      }
+      undoStack.push(current);
+      if (undoStack.length > maxEntries) {
+        undoStack.shift();
+      }
+      current = normalized;
+      redoStack.length = 0;
+      return true;
+    },
+    canUndo() {
+      return undoStack.length > 0;
+    },
+    canRedo() {
+      return redoStack.length > 0;
+    },
+    undo() {
+      if (undoStack.length === 0) return null;
+      const prev = undoStack.pop();
+      if (current) {
+        redoStack.push(current);
+      }
+      current = cloneSnapshot(prev);
+      return cloneSnapshot(prev);
+    },
+    redo() {
+      if (redoStack.length === 0) return null;
+      const next = redoStack.pop();
+      if (current) {
+        undoStack.push(current);
+      }
+      current = cloneSnapshot(next);
+      return cloneSnapshot(next);
+    },
+    getCounts() {
+      return { undo: undoStack.length, redo: redoStack.length };
+    }
   };
 }
 
@@ -107,17 +259,33 @@ function removeSlotFromGrid({ grid, slot, slots, rows, cols }) {
   return true;
 }
 
-function applyGridLayout({ grid, gridContainer, slots, rows, cols, resetPositions = false, maxSlots = MAX_SLOTS }) {
+function applyGridLayout({
+  grid,
+  gridContainer,
+  slots,
+  rows,
+  cols,
+  resetPositions = false,
+  explicitLayout = null,
+  maxSlots = MAX_SLOTS
+}) {
   if (!grid || !gridContainer || !Array.isArray(slots)) return;
 
   resetColumnHoverEffect(slots);
 
   const totalSlots = rows * cols;
-  const savedLayout = !resetPositions ? getSavedGridLayout() : null;
+  const hasExplicitLayout = Array.isArray(explicitLayout) && explicitLayout.length > 0;
+  const savedLayout = hasExplicitLayout
+    ? explicitLayout
+    : (!resetPositions ? getSavedGridLayout() : null);
   const savedBySlot = {};
   let validSavedCount = 0;
 
-  if (Array.isArray(savedLayout) && savedLayout.length > 0 && savedLayout.length <= totalSlots) {
+  if (
+    Array.isArray(savedLayout) &&
+    savedLayout.length > 0 &&
+    (hasExplicitLayout || savedLayout.length <= totalSlots)
+  ) {
     savedLayout.forEach((item, idx) => {
       if (!item || typeof item !== 'object') return;
       const sIdx = typeof item.slotIndex === 'number'
@@ -125,10 +293,12 @@ function applyGridLayout({ grid, gridContainer, slots, rows, cols, resetPosition
         : (typeof item.id === 'string' && item.id.startsWith('slot-')
             ? parseInt(item.id.replace('slot-', ''), 10)
             : idx);
+      const maxIndexBound = hasExplicitLayout ? maxSlots : totalSlots;
+      const validHeight = hasExplicitLayout ? item.h >= 1 : (item.h >= 1 && item.h <= rows);
       if (
         Number.isFinite(sIdx) &&
         sIdx >= 0 &&
-        sIdx < totalSlots &&
+        sIdx < maxIndexBound &&
         !savedBySlot[sIdx] &&
         typeof item.x === 'number' &&
         typeof item.y === 'number' &&
@@ -137,9 +307,8 @@ function applyGridLayout({ grid, gridContainer, slots, rows, cols, resetPosition
         item.x >= 0 &&
         item.y >= 0 &&
         item.w >= 1 &&
-        item.h >= 1 &&
-        item.x + item.w <= cols &&
-        item.h <= rows
+        validHeight &&
+        item.x + item.w <= cols
       ) {
         savedBySlot[sIdx] = { x: item.x, y: item.y, w: item.w, h: item.h };
         validSavedCount += 1;
@@ -147,14 +316,14 @@ function applyGridLayout({ grid, gridContainer, slots, rows, cols, resetPosition
     });
   }
 
-  // When every entry in a saved layout is valid for this (rows, cols) preset — including
-  // custom layouts where the user closed extra slots after resizing a card — preserve that
-  // exact subset of active slots rather than recreating closed slots on reload.
+  // When every entry in a saved/explicit layout is valid for this (rows, cols) preset — including
+  // custom layouts where the user closed extra slots after resizing a card or restored via undo —
+  // preserve that exact subset of active slots rather than recreating closed slots.
   const useSavedSubset =
-    !resetPositions &&
+    (hasExplicitLayout || !resetPositions) &&
     Array.isArray(savedLayout) &&
     savedLayout.length > 0 &&
-    savedLayout.length <= totalSlots &&
+    (hasExplicitLayout || savedLayout.length <= totalSlots) &&
     validSavedCount === savedLayout.length;
 
   const targetIndices = useSavedSubset
@@ -632,7 +801,14 @@ function expandSlotInColumn(targetSlot, slots, getGridDimensions) {
   restartSectionStayTimer(slots);
 }
 
-function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimensions }) {
+function initColumnHoverEffect({
+  gridContainer,
+  slots,
+  getGrid,
+  getGridDimensions,
+  onInteractionStart,
+  onInteractionEnd
+}) {
   if (!gridContainer || !Array.isArray(slots)) return;
 
   gridContainer.addEventListener('mouseleave', () => {
@@ -824,11 +1000,17 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
     grid.on('dragstart resizestart', () => {
       hoverEffectState.isInteractingWithGrid = true;
       resetColumnHoverEffect(slots);
+      if (typeof onInteractionStart === 'function') {
+        onInteractionStart();
+      }
     });
     grid.on('dragstop resizestop', () => {
       hoverEffectState.isInteractingWithGrid = false;
       saveGridLayout(grid);
       syncGridSlotsState(grid, slots, getGridDimensions ? getGridDimensions() : {});
+      if (typeof onInteractionEnd === 'function') {
+        onInteractionEnd();
+      }
     });
   }
 }
@@ -836,6 +1018,9 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
 module.exports = {
   calculateCellHeight,
   parsePreset,
+  captureGridSnapshot,
+  snapshotsEqual,
+  createLayoutHistory,
   disableGridDomSorting,
   syncGridSlotsState,
   removeSlotFromGrid,

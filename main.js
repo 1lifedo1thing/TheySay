@@ -473,12 +473,24 @@ function createWindow() {
     }
   });
 
-  // Ensure Cmd+R / Ctrl+R always reloads the main app window, and Escape closes open popups across frames
+  // Ensure Cmd+R / Ctrl+R reloads, Cmd/Ctrl+Z (+Shift/Y) triggers multi-step layout undo/redo,
+  // and Escape closes open popups across frames
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
-      if ((input.meta || input.control) && input.key.toLowerCase() === 'r') {
+      const key = String(input.key || '').toLowerCase();
+      const hasPrimaryMod = process.platform === 'darwin'
+        ? (input.meta && !input.control)
+        : (input.control && !input.meta);
+
+      if ((input.meta || input.control) && key === 'r') {
         event.preventDefault();
         mainWindow.reload();
+      } else if (hasPrimaryMod && !input.alt && key === 'z') {
+        event.preventDefault();
+        mainWindow.webContents.send(input.shift ? 'layout-redo' : 'layout-undo');
+      } else if (process.platform !== 'darwin' && hasPrimaryMod && !input.alt && !input.shift && key === 'y') {
+        event.preventDefault();
+        mainWindow.webContents.send('layout-redo');
       } else if (input.key === 'Escape') {
         mainWindow.webContents.send('global-escape');
       }
@@ -1763,6 +1775,18 @@ ipcMain.handle('fetch-online-tickers', async () => {
 
 ipcMain.on('flush-storage-data', () => {
   flushAllSessionsStorageData();
+});
+
+ipcMain.on('edit-undo', (event) => {
+  if (event && event.sender && !event.sender.isDestroyed()) {
+    event.sender.undo();
+  }
+});
+
+ipcMain.on('edit-redo', (event) => {
+  if (event && event.sender && !event.sender.isDestroyed()) {
+    event.sender.redo();
+  }
 });
 
 ipcMain.on('set-app-badge', (event, count) => {

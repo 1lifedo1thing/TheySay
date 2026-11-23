@@ -921,6 +921,105 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
     const posAfterRestart = await readGridPositions();
     expect(posAfterRestart).toEqual(posBeforeRestart);
+
+    // 3. Multi-step Cmd+Z / Ctrl+Z layout Undo & Cmd+Shift+Z / Ctrl+Shift+Z Redo
+    const undoShortcut = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+    const redoShortcut = process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z';
+
+    // Step 1: Switch layout preset to 2x3 (6 slots)
+    await selectGridLayout(page, '2x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    await page.waitForTimeout(250);
+    const posStep1 = await readGridPositions();
+
+    // Step 2: Resize slot 2 down to h=2 (pushes slot 5 into overflow at y=2)
+    const slot2Item = page.locator('.grid-stack-item[data-slot-index="2"]');
+    await slot2Item.hover();
+    const rh2 = slot2Item.locator('.ui-resizable-s');
+    await expect(rh2).toBeVisible();
+    const s5Box = await page.locator('.grid-stack-item[data-slot-index="5"]').boundingBox();
+    const rh2Box = await rh2.boundingBox();
+    await page.mouse.move(rh2Box.x + rh2Box.width / 2, rh2Box.y + rh2Box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rh2Box.x + rh2Box.width / 2, s5Box.y + s5Box.height - 8, { steps: 12 });
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+    await expect(slot2Item).toHaveAttribute('gs-h', '2');
+    const posStep2 = await readGridPositions();
+
+    // Step 3: Close pushed-down slot 5 (5 slots)
+    await page.locator('#btn-close-5').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(5);
+    await page.waitForTimeout(300);
+    const posStep3 = await readGridPositions();
+
+    // Step 4: Drag slot 0 by its header center onto slot 1 (horizontal swap)
+    const h0Drag = page.locator('.grid-stack-item[data-slot-index="0"] .slot-drag-handle');
+    const s1Target = page.locator('.grid-stack-item[data-slot-index="1"]');
+    const hb0 = await h0Drag.boundingBox();
+    const sb1 = await s1Target.boundingBox();
+    const step4StartX = hb0.x + hb0.width / 2;
+    const step4StartY = hb0.y + hb0.height / 2;
+    await page.mouse.move(step4StartX, step4StartY);
+    await page.mouse.down();
+    await page.mouse.move(step4StartX + 15, step4StartY + 5, { steps: 3 });
+    await page.mouse.move(sb1.x + sb1.width / 2, sb1.y + 20, { steps: 12 });
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    const posStep4 = await readGridPositions();
+    expect(posStep4).not.toEqual(posStep3);
+
+    // Guard 1: Cmd/Ctrl+Z while focused in an <input> must NOT undo grid layout
+    const input4 = page.locator('#handle-input-4');
+    await input4.click();
+    await page.keyboard.press(undoShortcut);
+    await page.waitForTimeout(150);
+    expect(await readGridPositions()).toEqual(posStep4);
+    await input4.blur();
+
+    // Guard 2: Cmd/Ctrl+Z while Settings modal is open must NOT undo grid layout
+    await page.locator('#btn-settings').click();
+    await expect(page.locator('#settings-modal-overlay')).not.toHaveClass(/is-closed/);
+    await page.keyboard.press(undoShortcut);
+    await page.waitForTimeout(150);
+    expect(await readGridPositions()).toEqual(posStep4);
+    await page.locator('#btn-settings-close').click();
+    await expect(page.locator('#settings-modal-overlay')).toHaveClass(/is-closed/);
+
+    // Multi-step Undo #1 -> reverts Step 4 drag (back to posStep3, 5 cards) without showing any toast
+    await page.keyboard.press(undoShortcut);
+    await expect.poll(() => readGridPositions()).toEqual(posStep3);
+    await expect(page.locator('.mantine-Notification-root.mantine-toast-item')).toHaveCount(0);
+
+    // Multi-step Undo #2 -> reverts Step 3 card close (slot 5 returns, 6 cards, slot 2 still h=2)
+    await page.keyboard.press(undoShortcut);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    await expect.poll(() => readGridPositions()).toEqual(posStep2);
+
+    // Multi-step Undo #3 -> reverts Step 2 resize (slot 2 back to h=1)
+    await page.keyboard.press(undoShortcut);
+    await expect.poll(() => readGridPositions()).toEqual(posStep1);
+
+    // Multi-step Undo #4 -> reverts Step 1 preset switch (back to 2x2 and posAfterRestart)
+    await page.keyboard.press(undoShortcut);
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+    await expect.poll(() => readGridPositions()).toEqual(posAfterRestart);
+
+    // Multi-step Redo #1 & #2 -> replays Step 1 (2x3) and Step 2 (slot 2 h=2)
+    await page.keyboard.press(redoShortcut);
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x3');
+    await expect.poll(() => readGridPositions()).toEqual(posStep1);
+
+    await page.keyboard.press(redoShortcut);
+    await expect(slot2Item).toHaveAttribute('gs-h', '2');
+    await expect.poll(() => readGridPositions()).toEqual(posStep2);
+
+    // Undo twice back to 2x2 cleanly for subsequent tests
+    await page.keyboard.press(undoShortcut);
+    await page.keyboard.press(undoShortcut);
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
   });
 
   test('10. Threads data source detection, cached feed rendering, Threads popup modal & settings', async () => {

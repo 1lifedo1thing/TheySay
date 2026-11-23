@@ -54,6 +54,8 @@ const {
 const {
   calculateCellHeight,
   parsePreset,
+  captureGridSnapshot,
+  createLayoutHistory,
   disableGridDomSorting,
   syncGridSlotsState,
   removeSlotFromGrid,
@@ -69,7 +71,7 @@ const {
   runDiscordBackgroundFetch,
   startPeriodicBackgroundFetch
 } = require('./src/data/scraper');
-const { initPostPopup } = require('./src/ui/popup');
+const { initPostPopup, isPostPopupOpen } = require('./src/ui/popup');
 const {
   initSettings,
   isSettingsModalOpen,
@@ -116,6 +118,72 @@ let grid = null;
 let currentRows = 2;
 let currentCols = 2;
 let slots = [];
+const layoutHistory = createLayoutHistory();
+
+function recordCurrentGridLayout() {
+  if (!grid) return false;
+  return layoutHistory.commit(captureGridSnapshot(grid, currentRows, currentCols));
+}
+
+function isEditableElement(el) {
+  if (!el || typeof el !== 'object') return false;
+  const tag = (el.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA') return true;
+  if (tag === 'INPUT') {
+    const type = (el.type || 'text').toLowerCase();
+    return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file'].includes(type);
+  }
+  return Boolean(el.isContentEditable);
+}
+
+function applyHistorySnapshot(snapshot) {
+  if (!snapshot || !grid) return false;
+  layoutHistory.setRestoring(true);
+  try {
+    const { rows, cols } = parsePreset(snapshot.preset);
+    const normalizedPreset = `${rows}x${cols}`;
+    currentRows = rows;
+    currentCols = cols;
+    saveStoredPreset(normalizedPreset);
+    syncMantineGridPreset(normalizedPreset);
+    saveRawGridLayout(snapshot.items);
+    applyGridLayout({
+      grid,
+      gridContainer,
+      slots,
+      rows,
+      cols,
+      resetPositions: false,
+      explicitLayout: snapshot.items,
+      maxSlots: MAX_SLOTS
+    });
+  } finally {
+    layoutHistory.setRestoring(false);
+  }
+  return true;
+}
+
+function triggerLayoutHistoryStep(direction, { fromMainIpc = false } = {}) {
+  const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+  if (isEditableElement(activeEl)) {
+    if (fromMainIpc && ipcRenderer) {
+      ipcRenderer.send(direction === 'redo' ? 'edit-redo' : 'edit-undo');
+    }
+    return false;
+  }
+  if (isSettingsModalOpen() || isPostPopupOpen()) {
+    return false;
+  }
+  if (!grid || layoutHistory.isInteracting()) {
+    return false;
+  }
+
+  const snapshot = direction === 'redo' ? layoutHistory.redo() : layoutHistory.undo();
+  if (!snapshot) return false;
+
+  applyHistorySnapshot(snapshot);
+  return true;
+}
 
 function refreshLocalizedAppUI(lang) {
   applyPageLocalization(lang);
@@ -142,16 +210,20 @@ function handleSlotResize(slot, targetW, targetH) {
     currentCols,
     slots
   });
+  recordCurrentGridLayout();
 }
 
 function handleSlotClose(slot) {
-  removeSlotFromGrid({
+  const removed = removeSlotFromGrid({
     grid,
     slot,
     slots,
     rows: currentRows,
     cols: currentCols
   });
+  if (removed) {
+    recordCurrentGridLayout();
+  }
 }
 
 function getAttachedSlots() {
@@ -416,6 +488,7 @@ async function handleImportProfile() {
         resetPositions: !importedLayout,
         maxSlots: MAX_SLOTS
       });
+      recordCurrentGridLayout();
     }
 
     // 5. Refresh UI, timers, and settings modal if open
@@ -576,13 +649,17 @@ window.addEventListener('DOMContentLoaded', () => {
     resetPositions: false,
     maxSlots: MAX_SLOTS
   });
+  layoutHistory.reset(captureGridSnapshot(grid, currentRows, currentCols));
 
   // Initialize smooth column section hover expand/squeeze effect
   initColumnHoverEffect({
     gridContainer,
     slots,
     getGrid: () => grid,
-    getGridDimensions
+    getGridDimensions,
+    onInteractionStart: () => layoutHistory.beginInteraction(),
+    onInteractionEnd: () =>
+      layoutHistory.endInteraction(captureGridSnapshot(grid, currentRows, currentCols))
   });
 
   // Restore cached posts and synchronize login expiration state
@@ -629,6 +706,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     saveGridLayout(grid);
     syncGridSlotsState(grid, slots, { rows: currentRows, cols: currentCols });
+    recordCurrentGridLayout();
   });
 
   // Grid layout picker selection change (1x1 to 4x4)
@@ -649,13 +727,40 @@ window.addEventListener('DOMContentLoaded', () => {
       resetPositions: true,
       maxSlots: MAX_SLOTS
     });
+    recordCurrentGridLayout();
   });
 
   if (ipcRenderer) {
     ipcRenderer.on('global-escape', () => {
       closeMantineLayoutPicker();
     });
+    ipcRenderer.on('layout-undo', () => {
+      triggerLayoutHistoryStep('undo', { fromMainIpc: true });
+    });
+    ipcRenderer.on('layout-redo', () => {
+      triggerLayoutHistoryStep('redo', { fromMainIpc: true });
+    });
   }
+
+  // Fallback keyboard listener when keydown reaches renderer directly (e.g. synthetic events)
+  window.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || e.altKey) return;
+    const key = String(e.key || '').toLowerCase();
+    const isMac = typeof process !== 'undefined' && process.platform === 'darwin';
+    const hasPrimaryMod = isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+
+    if (hasPrimaryMod && key === 'z') {
+      if (isEditableElement(document.activeElement)) return;
+      if (isSettingsModalOpen() || isPostPopupOpen()) return;
+      e.preventDefault();
+      triggerLayoutHistoryStep(e.shiftKey ? 'redo' : 'undo', { fromMainIpc: false });
+    } else if (!isMac && hasPrimaryMod && !e.shiftKey && key === 'y') {
+      if (isEditableElement(document.activeElement)) return;
+      if (isSettingsModalOpen() || isPostPopupOpen()) return;
+      e.preventDefault();
+      triggerLayoutHistoryStep('redo', { fromMainIpc: false });
+    }
+  });
 
   // Mark all posts as read button
   if (btnMarkAllRead) {
