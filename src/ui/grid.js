@@ -653,7 +653,7 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
     const inIgnoredControl = Boolean(
       target &&
       typeof target.closest === 'function' &&
-      target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, a, button, input, textarea, select, label')
+      target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, .ui-resizable-n, .ui-resizable-nw, .ui-resizable-ne, a, button, input, textarea, select, label')
     );
     hoverEffectState.pointerDownInfo = {
       x: e.clientX,
@@ -692,8 +692,8 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
       if (sel && String(sel).trim().length > 0) return;
     }
 
-    // Ignore clicks on date pills, headers, pinned bars, or interactive controls
-    if (target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, a, button, input, textarea, select, label')) {
+    // Ignore clicks on date pills, headers, top resize edges, pinned bars, or interactive controls
+    if (target.closest('.im-date-pill, .slot-header, .slot-pinned-container, .slot-size-menu, .ui-resizable-n, .ui-resizable-nw, .ui-resizable-ne, a, button, input, textarea, select, label')) {
       return;
     }
 
@@ -759,11 +759,11 @@ function initColumnHoverEffect({ gridContainer, slots, getGrid, getGridDimension
     }
     const slot = slots[slotIndex];
 
-    // Moving cursor onto a section's header (用户名那栏) shows the header and restores column heights
-    const headerEl = target.closest('.slot-header');
+    // Moving cursor onto a section's header (用户名那栏) or top resize edge shows the header and restores column heights
+    const headerEl = target.closest('.slot-header, .ui-resizable-n, .ui-resizable-nw, .ui-resizable-ne');
     const cardRect = slot.card ? slot.card.getBoundingClientRect() : null;
     const inHeaderZone = Boolean(
-      headerEl || (cardRect && e.clientY >= cardRect.top && e.clientY <= cardRect.top + 28)
+      headerEl || (cardRect && e.clientY >= cardRect.top - 4 && e.clientY <= cardRect.top + 28)
     );
     if (inHeaderZone) {
       clearHeaderHiddenState(slots);

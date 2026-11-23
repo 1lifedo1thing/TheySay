@@ -254,6 +254,37 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
       .evaluate((el) => (el.gridstackNode && el.gridstackNode.h) || 1);
     expect(slot2RestoredH).toBe(1);
 
+    // Verify upward resize from a bottom-row card's top edge (.ui-resizable-n)
+    await page.waitForTimeout(250);
+    const slot4Item = page.locator('.grid-stack-item[data-slot-index="4"]');
+    await slot4Item.hover();
+    const northHandle4 = slot4Item.locator('.ui-resizable-n');
+    await expect(northHandle4).toBeVisible();
+    const slot1Box = await page.locator('.grid-stack-item[data-slot-index="1"]').boundingBox();
+    const nhBox = await northHandle4.boundingBox();
+    await page.mouse.move(nhBox.x + nhBox.width / 2, nhBox.y + nhBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      nhBox.x + nhBox.width / 2,
+      slot1Box.y + 8,
+      { steps: 12 }
+    );
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+
+    // Slot 4 grew upward to row 0 (y=0, h=2) and pushed slot 1 below row 2
+    await expect(slot4Item).toHaveAttribute('gs-y', '0');
+    await expect(slot4Item).toHaveAttribute('gs-h', '2');
+    const pushedSlot1 = page.locator('.grid-stack-item[data-slot-index="1"]');
+    await expect(pushedSlot1).toHaveAttribute('gs-y', '2');
+    await expect(pushedSlot1).toHaveClass(/is-grid-overflow/);
+
+    // Close pushed slot 1 and restore full 2x3 cleanly
+    await page.locator('#btn-close-1').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(5);
+    await selectGridLayout(page, '2x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+
     // Select 1x4 layout (1 row x 4 columns)
     await selectGridLayout(page, '1x4');
     await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '1x4');
@@ -499,14 +530,14 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.locator('#btn-settings-close').click();
     await expect(settingsOverlay).toHaveClass(/is-closed/);
 
-    // Verify close button (×) is pinned to the far right edge of the card header in author mode
+    // Verify close button (×) is pinned tightly to the far right edge of the card header in author mode
     const closeBtnRightGap = await page.evaluate(() => {
       const header = document.querySelector('#slot-card-0 .slot-header');
       const closeBtn = document.getElementById('btn-close-0');
       if (!header || !closeBtn) return Infinity;
       return Math.abs(header.getBoundingClientRect().right - closeBtn.getBoundingClientRect().right);
     });
-    expect(closeBtnRightGap).toBeLessThanOrEqual(14);
+    expect(closeBtnRightGap).toBeLessThanOrEqual(6);
 
     // Verify post bubble and stock ticker highlights ($NVDA and AAPL)
     await expect(page.locator('#slot-content-0 .im-date-pill').first()).toHaveClass(

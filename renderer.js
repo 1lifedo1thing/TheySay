@@ -560,7 +560,7 @@ window.addEventListener('DOMContentLoaded', () => {
     float: false,
     handle: '.slot-drag-handle',
     resizable: {
-      handles: 'e,se,s,sw,w'
+      handles: 'n,e,se,s,sw,w,nw'
     }
   });
   // Keep slot feeds' scroll positions intact across drag/resize (see grid.js)

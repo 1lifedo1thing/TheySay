@@ -1022,6 +1022,24 @@ body {
   transform: none !important;
 }
 
+.grid-stack-item > .ui-resizable-n {
+  top: 0;
+  left: 12px;
+  right: 26px;
+  height: 7px;
+  cursor: n-resize;
+  z-index: 100;
+}
+
+.grid-stack-item > .ui-resizable-nw {
+  width: 12px;
+  height: 8px;
+  top: 0;
+  left: 0;
+  cursor: nw-resize;
+  z-index: 101;
+}
+
 .grid-stack-item > .ui-resizable-se {
   width: 16px;
   height: 16px;
@@ -1087,7 +1105,7 @@ body {
   align-items: center;
   justify-content: flex-start;
   gap: 5px;
-  padding: 0 10px 4px;
+  padding: 0 4px 4px 10px;
   height: 28px;
   max-height: 28px;
   box-sizing: border-box;
@@ -1165,7 +1183,7 @@ body {
   top: 28px !important;
 }
 
-.grid-stack-item:not(.ui-draggable-dragging):not(.ui-resizable-resizing):hover
+.grid-stack-item:not(.ui-draggable-dragging):not(.ui-resizable-resizing):hover:not(:has(> .ui-resizable-n:hover, > .ui-resizable-nw:hover, > .ui-resizable-ne:hover))
   .slot-card:not(.has-pinned-posts)
   > .slot-header:not(:hover):not(:focus-within):not(.has-open-menu),
 .grid-stack-item:not(.ui-draggable-dragging):not(.ui-resizable-resizing)
