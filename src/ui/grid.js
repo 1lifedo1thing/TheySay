@@ -204,6 +204,242 @@ function disableGridDomSorting(grid) {
   grid._sortDom = () => grid;
 }
 
+/**
+ * Computes a clean, non-overlapping horizontal block swap across the vertical split line
+ * immediately adjacent to `node` in direction `dir` (+1 right, -1 left).
+ *
+ * The algorithm grows a minimal bounding rectangle `[leftX, rightX) x [yMin, yMax)` split
+ * at `splitX` until no node protrudes outside the rectangle or crosses `splitX`.
+ * Swapping the left partition `[leftX, splitX)` and right partition `[splitX, rightX)`
+ * shifts every left node right by `rightWidth` and every right node left by `leftWidth`
+ * without pushing any card vertically up or down.
+ *
+ * Returns `null` if the move is out of bounds, hits a locked node, or encounters an
+ * interlocked node strictly spanning `splitX`.
+ */
+function computeAdjacentHorizontalBlockSwap(nodes, node, dir, columns) {
+  if (!Array.isArray(nodes) || !node || (dir !== 1 && dir !== -1)) return null;
+  if (!Number.isFinite(columns) || columns < 2) return null;
+
+  const sx = Number(node.x) || 0;
+  const sy = Number(node.y) || 0;
+  const sw = Math.max(1, Number(node.w) || 1);
+  const sh = Math.max(1, Number(node.h) || 1);
+  if (node.locked) return null;
+
+  const splitX = dir > 0 ? (sx + sw) : sx;
+  if (splitX <= 0 || splitX >= columns) return null;
+
+  let leftX = dir > 0 ? sx : (splitX - 1);
+  let rightX = dir > 0 ? (splitX + 1) : (sx + sw);
+  let yMin = sy;
+  let yMax = sy + sh;
+
+  let leftNodes = [];
+  let rightNodes = [];
+  let changed = true;
+  let guard = 0;
+  const maxIterations = Math.max(16, nodes.length * 4);
+
+  while (changed) {
+    if (guard++ > maxIterations) return null;
+    changed = false;
+    leftNodes = [];
+    rightNodes = [];
+
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!n) continue;
+      const nx = Number(n.x) || 0;
+      const ny = Number(n.y) || 0;
+      const nw = Math.max(1, Number(n.w) || 1);
+      const nh = Math.max(1, Number(n.h) || 1);
+      const nRight = nx + nw;
+      const nBottom = ny + nh;
+
+      if (nBottom <= yMin || ny >= yMax) continue;
+      if (nRight <= leftX || nx >= rightX) continue;
+
+      if (n.locked) return null;
+      if (nx < splitX && nRight > splitX) return null;
+
+      if (nx < leftX) {
+        leftX = nx;
+        changed = true;
+      }
+      if (nRight > rightX) {
+        rightX = nRight;
+        changed = true;
+      }
+      if (ny < yMin) {
+        yMin = ny;
+        changed = true;
+      }
+      if (nBottom > yMax) {
+        yMax = nBottom;
+        changed = true;
+      }
+
+      if (nRight <= splitX) {
+        leftNodes.push(n);
+      } else {
+        rightNodes.push(n);
+      }
+    }
+  }
+
+  if (leftX < 0 || rightX > columns || leftX >= splitX || rightX <= splitX) {
+    return null;
+  }
+
+  const leftWidth = splitX - leftX;
+  const rightWidth = rightX - splitX;
+  const nodeSide = dir > 0 ? leftNodes : rightNodes;
+  if (!nodeSide.includes(node)) {
+    return null;
+  }
+
+  return {
+    splitX,
+    leftX,
+    rightX,
+    yMin,
+    yMax,
+    leftWidth,
+    rightWidth,
+    leftNodes,
+    rightNodes
+  };
+}
+
+/**
+ * Attempts one or more adjacent horizontal block swaps toward `targetX`.
+ * Returns:
+ * - `'swapped'`: at least one horizontal block swap was applied
+ * - `'pending'`: a valid swap exists, waiting for the dragged card to cross the midpoint threshold
+ * - `'impossible'`: no clean horizontal block swap exists (caller may fall back)
+ */
+function tryHorizontalBlockSwap(nodes, node, targetX, columns, opt = {}) {
+  if (!Array.isArray(nodes) || !node || typeof targetX !== 'number') {
+    return 'impossible';
+  }
+  const origX = Number(node.x) || 0;
+  if (targetX === origX) return 'impossible';
+
+  const dir = targetX > origX ? 1 : -1;
+  const hasPixelContext = Boolean(
+    opt &&
+    opt.rect &&
+    node._rect &&
+    typeof opt.cellWidth === 'number' &&
+    opt.cellWidth > 0
+  );
+
+  let swappedAny = false;
+  let sawPending = false;
+  let guard = 0;
+
+  while ((dir > 0 ? node.x < targetX : node.x > targetX) && guard++ < columns) {
+    const plan = computeAdjacentHorizontalBlockSwap(nodes, node, dir, columns);
+    if (!plan) {
+      break;
+    }
+
+    // Require the dragged item to pass the midpoint of its horizontal jump to prevent oscillation
+    const shiftCols = dir > 0 ? plan.rightWidth : plan.leftWidth;
+    if (hasPixelContext) {
+      const currentRefRectX = node._rect.x + (node.x - origX) * opt.cellWidth;
+      const travelPx = dir > 0
+        ? (opt.rect.x - currentRefRectX)
+        : (currentRefRectX - opt.rect.x);
+      if (travelPx <= (shiftCols * opt.cellWidth) / 2) {
+        sawPending = true;
+        break;
+      }
+    }
+
+    for (let i = 0; i < plan.leftNodes.length; i++) {
+      const n = plan.leftNodes[i];
+      n.x += plan.rightWidth;
+      n._dirty = true;
+    }
+    for (let i = 0; i < plan.rightNodes.length; i++) {
+      const n = plan.rightNodes[i];
+      n.x -= plan.leftWidth;
+      n._dirty = true;
+    }
+    swappedAny = true;
+  }
+
+  if (swappedAny) return 'swapped';
+  if (sawPending) return 'pending';
+  return 'impossible';
+}
+
+/**
+ * Creates a GridStackEngine subclass that swaps horizontal card bands in place during
+ * active horizontal drags (e.g. dragging a 2-row-tall card onto two stacked 1-row cards
+ * moves both stacked cards into the tall card's original position instead of pushing cards
+ * vertically up or down).
+ */
+function createHorizontalSwapEngineClass(BaseEngine) {
+  if (typeof BaseEngine !== 'function') return BaseEngine;
+
+  return class HorizontalSwapGridStackEngine extends BaseEngine {
+    moveNode(node, o) {
+      if (
+        node &&
+        o &&
+        node._moving &&
+        !node._resizing &&
+        !node._isExternal &&
+        !o.nested &&
+        !o.resizing &&
+        !o.skip &&
+        !this._loading &&
+        !this.batchMode &&
+        !this.float
+      ) {
+        const w = typeof o.w === 'number' ? o.w : node.w;
+        const h = typeof o.h === 'number' ? o.h : node.h;
+        const rawX = typeof o.x === 'number' ? o.x : node.x;
+        const rawY = typeof o.y === 'number' ? o.y : node.y;
+
+        if (w === node.w && h === node.h) {
+          const maxX = Math.max(0, this.column - node.w);
+          const clampedX = Math.max(0, Math.min(maxX, rawX));
+          let clampedY = Math.max(0, rawY);
+          if (this.maxRow && clampedY + node.h > this.maxRow) {
+            clampedY = Math.max(0, this.maxRow - node.h);
+          }
+
+          if (clampedX !== node.x && clampedY === node.y) {
+            const targetArea = { x: clampedX, y: clampedY, w: node.w, h: node.h };
+            const collides = this.collideAll(node, targetArea);
+            if (collides.length > 0) {
+              const prevX = node.x;
+              const prevY = node.y;
+              const outcome = tryHorizontalBlockSwap(this.nodes, node, clampedX, this.column, o);
+              if (outcome === 'swapped') {
+                const shouldPack = o.pack !== undefined ? o.pack : !this.batchMode;
+                if (shouldPack) {
+                  this._packNodes()._notify();
+                }
+                return node.x !== prevX || node.y !== prevY;
+              }
+              if (outcome === 'pending') {
+                return false;
+              }
+            }
+          }
+        }
+      }
+
+      return super.moveNode(node, o);
+    }
+  };
+}
+
 function syncGridSlotsState(grid, slots, { rows } = {}) {
   if (!Array.isArray(slots)) return;
   const attachedSlots = slots.filter(s => s && s.element && s.element.parentElement);
@@ -1022,6 +1258,9 @@ module.exports = {
   snapshotsEqual,
   createLayoutHistory,
   disableGridDomSorting,
+  computeAdjacentHorizontalBlockSwap,
+  tryHorizontalBlockSwap,
+  createHorizontalSwapEngineClass,
   syncGridSlotsState,
   removeSlotFromGrid,
   applyGridLayout,

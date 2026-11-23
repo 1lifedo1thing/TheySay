@@ -3203,6 +3203,287 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(postMigrationCheck.localSlotCache).toBeNull();
     expect(postMigrationCheck.localTargetCache).toBeNull();
   });
+
+  test('26. Horizontal drag swaps positions with target column block instead of pushing cards vertically', async () => {
+    // 1. Unit-level verification of horizontal block-swap geometry & midpoint hysteresis
+    const engineChecks = await page.evaluate(() => {
+      const {
+        computeAdjacentHorizontalBlockSwap,
+        tryHorizontalBlockSwap,
+        createHorizontalSwapEngineClass
+      } = require('./src/ui/grid');
+
+      const HorizontalEngine = createHorizontalSwapEngineClass(GridStack.Engine);
+
+      // Case A: Tall card (1x2) at (0,0) swapped right onto two stacked 1x1 cards at (1,0) & (1,1)
+      const nodesA = [
+        { id: 'A', x: 0, y: 0, w: 1, h: 2 },
+        { id: 'B', x: 0, y: 2, w: 1, h: 1 },
+        { id: 'C', x: 1, y: 0, w: 1, h: 1 },
+        { id: 'D', x: 1, y: 1, w: 1, h: 1 },
+        { id: 'E', x: 1, y: 2, w: 1, h: 1 },
+        { id: 'F', x: 2, y: 0, w: 1, h: 1 },
+        { id: 'G', x: 2, y: 1, w: 1, h: 1 },
+        { id: 'H', x: 2, y: 2, w: 1, h: 1 }
+      ];
+      const resA1 = tryHorizontalBlockSwap(nodesA, nodesA[0], 1, 3);
+      const afterA1 = Object.fromEntries(nodesA.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }]));
+      // Fast jump back across two columns isn't needed here; jump right again to col 2
+      const resA2 = tryHorizontalBlockSwap(nodesA, nodesA[0], 2, 3);
+      const afterA2 = Object.fromEntries(nodesA.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }]));
+
+      // Case B: Staggered/interlocked columns ([1x1, 1x2] vs [1x2, 1x1]) via HorizontalEngine.moveNode
+      const engineB = new HorizontalEngine({
+        column: 2,
+        float: false,
+        nodes: [
+          { _id: 1, id: 'X', x: 0, y: 0, w: 1, h: 1 },
+          { _id: 2, id: 'A', x: 0, y: 1, w: 1, h: 2 },
+          { _id: 3, id: 'D', x: 1, y: 0, w: 1, h: 2 },
+          { _id: 4, id: 'E', x: 1, y: 2, w: 1, h: 1 }
+        ]
+      });
+      engineB.cacheRects(300, 200, 2, 2, 2, 2);
+      const nodeB = engineB.nodes.find((n) => n.id === 'A');
+      nodeB._moving = true;
+      const movedB = engineB.moveNode(nodeB, {
+        x: 1,
+        y: 1,
+        w: 1,
+        h: 2,
+        cellWidth: 300,
+        cellHeight: 200,
+        rect: { x: 182, y: 202, w: 296, h: 396 },
+        resizing: false,
+        pack: true
+      });
+      const afterB = Object.fromEntries(
+        engineB.nodes.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }])
+      );
+
+      // Case C: Wide card (2x2) vs stacked 1x1 cards — midpoint hysteresis prevents early trigger & bounce-back
+      const nodesC = [
+        { id: 'C1', x: 0, y: 0, w: 1, h: 1, _rect: { x: 2, y: 2, w: 296, h: 196 } },
+        { id: 'C2', x: 0, y: 1, w: 1, h: 1, _rect: { x: 2, y: 202, w: 296, h: 196 } },
+        { id: 'W', x: 1, y: 0, w: 2, h: 2, _rect: { x: 302, y: 2, w: 596, h: 396 } }
+      ];
+      // Drag C1 right by 0.6 * cellWidth (< 1.0 * cellWidth midpoint for R=2) -> pending
+      const resCPending = tryHorizontalBlockSwap(nodesC, nodesC[0], 1, 3, {
+        cellWidth: 300,
+        rect: { x: 182, y: 2, w: 296, h: 196 }
+      });
+      // Drag C1 right by 1.05 * cellWidth (> 1.0 * cellWidth midpoint) -> swapped
+      const resCSwapped = tryHorizontalBlockSwap(nodesC, nodesC[0], 1, 3, {
+        cellWidth: 300,
+        rect: { x: 317, y: 2, w: 296, h: 196 }
+      });
+      const afterCSwap = Object.fromEntries(nodesC.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }]));
+      // Update cached rect after swap; staying at x=317 should NOT bounce back left
+      nodesC[0]._rect = { x: 602, y: 2, w: 296, h: 196 };
+      const resCNoBounce = tryHorizontalBlockSwap(nodesC, nodesC[0], 1, 3, {
+        cellWidth: 300,
+        rect: { x: 317, y: 2, w: 296, h: 196 }
+      });
+
+      // Case D: Interlocked pinwheel where a card strictly crosses splitX -> returns null
+      const nodesD = [
+        { id: 'A', x: 0, y: 0, w: 1, h: 2 },
+        { id: 'W1', x: 1, y: 0, w: 2, h: 1 },
+        { id: 'D', x: 1, y: 1, w: 1, h: 1 },
+        { id: 'H', x: 2, y: 1, w: 1, h: 2 },
+        { id: 'W2', x: 0, y: 2, w: 2, h: 1 }
+      ];
+      const planD = computeAdjacentHorizontalBlockSwap(nodesD, nodesD[0], 1, 3);
+
+      return {
+        resA1,
+        afterA1,
+        resA2,
+        afterA2,
+        movedB,
+        afterB,
+        resCPending,
+        resCSwapped,
+        afterCSwap,
+        resCNoBounce,
+        planD
+      };
+    });
+
+    expect(engineChecks.resA1).toBe('swapped');
+    expect(engineChecks.afterA1).toEqual({
+      A: { x: 1, y: 0, w: 1, h: 2 },
+      B: { x: 0, y: 2, w: 1, h: 1 },
+      C: { x: 0, y: 0, w: 1, h: 1 },
+      D: { x: 0, y: 1, w: 1, h: 1 },
+      E: { x: 1, y: 2, w: 1, h: 1 },
+      F: { x: 2, y: 0, w: 1, h: 1 },
+      G: { x: 2, y: 1, w: 1, h: 1 },
+      H: { x: 2, y: 2, w: 1, h: 1 }
+    });
+    expect(engineChecks.resA2).toBe('swapped');
+    expect(engineChecks.afterA2).toEqual({
+      A: { x: 2, y: 0, w: 1, h: 2 },
+      B: { x: 0, y: 2, w: 1, h: 1 },
+      C: { x: 0, y: 0, w: 1, h: 1 },
+      D: { x: 0, y: 1, w: 1, h: 1 },
+      E: { x: 1, y: 2, w: 1, h: 1 },
+      F: { x: 1, y: 0, w: 1, h: 1 },
+      G: { x: 1, y: 1, w: 1, h: 1 },
+      H: { x: 2, y: 2, w: 1, h: 1 }
+    });
+    expect(engineChecks.movedB).toBe(true);
+    expect(engineChecks.afterB).toEqual({
+      X: { x: 1, y: 0, w: 1, h: 1 },
+      A: { x: 1, y: 1, w: 1, h: 2 },
+      D: { x: 0, y: 0, w: 1, h: 2 },
+      E: { x: 0, y: 2, w: 1, h: 1 }
+    });
+    expect(engineChecks.resCPending).toBe('pending');
+    expect(engineChecks.resCSwapped).toBe('swapped');
+    expect(engineChecks.afterCSwap).toEqual({
+      C1: { x: 2, y: 0, w: 1, h: 1 },
+      C2: { x: 2, y: 1, w: 1, h: 1 },
+      W: { x: 0, y: 0, w: 2, h: 2 }
+    });
+    expect(engineChecks.resCNoBounce).toBe('pending');
+    expect(engineChecks.planD).toBeNull();
+
+    // 2. End-to-end Electron drag test reproducing the 3x3 tall-card horizontal drag scenario
+    const readGridPositions = async () =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll('#grid-stack-container > .grid-stack-item'))
+          .map((el) => ({
+            slotIndex: parseInt(el.getAttribute('data-slot-index'), 10),
+            x: el.gridstackNode.x,
+            y: el.gridstackNode.y,
+            w: el.gridstackNode.w,
+            h: el.gridstackNode.h
+          }))
+          .sort((a, b) => a.slotIndex - b.slotIndex)
+      );
+
+    // Dismiss onboarding popover if running standalone
+    const closeOnboardingBtn = page.locator('.driver-popover-close-btn');
+    if (await closeOnboardingBtn.isVisible().catch(() => false)) {
+      await closeOnboardingBtn.click();
+    }
+
+    await selectGridLayout(page, '3x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(9);
+    await page.waitForTimeout(300);
+
+    // Resize slot-0 (x=0, y=0) down to h=2, then close the overflowed slot at bottom of col 0
+    const slot0Item = page.locator('.grid-stack-item[data-slot-index="0"]');
+    await slot0Item.hover();
+    const rh0 = slot0Item.locator('.ui-resizable-s');
+    await expect(rh0).toBeVisible();
+    const slot3Box = await page.locator('.grid-stack-item[data-slot-index="3"]').boundingBox();
+    const rh0Box = await rh0.boundingBox();
+    await page.mouse.move(rh0Box.x + rh0Box.width / 2, rh0Box.y + rh0Box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rh0Box.x + rh0Box.width / 2, slot3Box.y + slot3Box.height - 8, { steps: 12 });
+    await page.waitForTimeout(250);
+    await page.mouse.up();
+    await expect(slot0Item).toHaveAttribute('gs-h', '2');
+
+    // Close the single overflow slot pushed past row 3 so the 3x3 grid is flush (8 cards total)
+    const overflowSlot = page.locator('.grid-stack-item.is-grid-overflow').first();
+    await expect(overflowSlot).toBeVisible();
+    const overflowIdx = await overflowSlot.getAttribute('data-slot-index');
+    await page.locator(`#btn-close-${overflowIdx}`).click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(8);
+    await expect(page.locator('.grid-stack-item.is-grid-overflow')).toHaveCount(0);
+    await page.waitForTimeout(300);
+
+    const beforeDrag = await readGridPositions();
+    const findAt = (list, x, y) => list.find((p) => p.x === x && p.y === y);
+    const tallSlot = findAt(beforeDrag, 0, 0);
+    const col0Bottom = findAt(beforeDrag, 0, 2);
+    const col1Top = findAt(beforeDrag, 1, 0);
+    const col1Mid = findAt(beforeDrag, 1, 1);
+    const col1Bottom = findAt(beforeDrag, 1, 2);
+    const col2Top = findAt(beforeDrag, 2, 0);
+    const col2Mid = findAt(beforeDrag, 2, 1);
+    const col2Bottom = findAt(beforeDrag, 2, 2);
+    expect(tallSlot).toMatchObject({ slotIndex: 0, x: 0, y: 0, w: 1, h: 2 });
+    expect(col0Bottom).toBeTruthy();
+    expect(col1Top).toBeTruthy();
+    expect(col1Mid).toBeTruthy();
+    expect(col1Bottom).toBeTruthy();
+
+    // Drag the tall card (slot-0) horizontally right by 1 column onto column 1
+    // (grabbing the empty header drag region to the right of the handle input)
+    const handleTall = page.locator(`.grid-stack-item[data-slot-index="${tallSlot.slotIndex}"] .slot-drag-handle`);
+    const targetCol1 = page.locator(`.grid-stack-item[data-slot-index="${col1Top.slotIndex}"]`);
+    const hbTall = await handleTall.boundingBox();
+    const tbCol1 = await targetCol1.boundingBox();
+    const dragStartX = hbTall.x + hbTall.width - 56;
+    const dragStartY = hbTall.y + hbTall.height / 2;
+    await page.mouse.move(dragStartX, dragStartY);
+    await page.mouse.down();
+    await page.mouse.move(dragStartX + 16, dragStartY, { steps: 3 });
+    await page.mouse.move(dragStartX + tbCol1.width, dragStartY, { steps: 14 });
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+    await page.waitForTimeout(450);
+
+    const afterRightDrag = await readGridPositions();
+    expect(afterRightDrag.find((p) => p.slotIndex === tallSlot.slotIndex)).toMatchObject({
+      x: 1,
+      y: 0,
+      w: 1,
+      h: 2
+    });
+    // Both stacked cards from column 1 swapped into column 0's top two rows
+    expect(afterRightDrag.find((p) => p.slotIndex === col1Top.slotIndex)).toMatchObject({
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1
+    });
+    expect(afterRightDrag.find((p) => p.slotIndex === col1Mid.slotIndex)).toMatchObject({
+      x: 0,
+      y: 1,
+      w: 1,
+      h: 1
+    });
+    // Bottom row and column 2 cards were NOT pushed up or down
+    expect(afterRightDrag.find((p) => p.slotIndex === col0Bottom.slotIndex)).toMatchObject({ x: 0, y: 2 });
+    expect(afterRightDrag.find((p) => p.slotIndex === col1Bottom.slotIndex)).toMatchObject({ x: 1, y: 2 });
+    expect(afterRightDrag.find((p) => p.slotIndex === col2Top.slotIndex)).toMatchObject({ x: 2, y: 0 });
+    expect(afterRightDrag.find((p) => p.slotIndex === col2Mid.slotIndex)).toMatchObject({ x: 2, y: 1 });
+    expect(afterRightDrag.find((p) => p.slotIndex === col2Bottom.slotIndex)).toMatchObject({ x: 2, y: 2 });
+    await expect(page.locator('.grid-stack-item.is-grid-overflow')).toHaveCount(0);
+
+    // Reverse: drag the shorter second card (now at x=0, y=1) horizontally right onto the tall card at col 1
+    const handleCol0Mid = page.locator(`.grid-stack-item[data-slot-index="${col1Mid.slotIndex}"] .slot-drag-handle`);
+    const targetTall = page.locator(`.grid-stack-item[data-slot-index="${tallSlot.slotIndex}"]`);
+    const hbMid = await handleCol0Mid.boundingBox();
+    const tbTall = await targetTall.boundingBox();
+    const revStartX = hbMid.x + hbMid.width - 56;
+    const revStartY = hbMid.y + hbMid.height / 2;
+    await page.mouse.move(revStartX, revStartY);
+    await page.mouse.down();
+    await page.mouse.move(revStartX + 16, revStartY, { steps: 3 });
+    await page.mouse.move(revStartX + tbTall.width, revStartY, { steps: 14 });
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+    await page.waitForTimeout(450);
+
+    const afterReverseDrag = await readGridPositions();
+    expect(afterReverseDrag).toEqual(beforeDrag);
+    await expect(page.locator('.grid-stack-item.is-grid-overflow')).toHaveCount(0);
+
+    // Undo reverts the reverse drag back to afterRightDrag in a single Cmd/Ctrl+Z step
+    const undoShortcut = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+    await page.keyboard.press(undoShortcut);
+    await expect.poll(() => readGridPositions()).toEqual(afterRightDrag);
+
+    // Restore 2x2 cleanly
+    await selectGridLayout(page, '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+  });
 });
 
 

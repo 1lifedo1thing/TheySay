@@ -57,6 +57,7 @@ const {
   captureGridSnapshot,
   createLayoutHistory,
   disableGridDomSorting,
+  createHorizontalSwapEngineClass,
   syncGridSlotsState,
   removeSlotFromGrid,
   applyGridLayout,
@@ -632,6 +633,7 @@ window.addEventListener('DOMContentLoaded', () => {
     animate: true,
     float: false,
     handle: '.slot-drag-handle',
+    engineClass: createHorizontalSwapEngineClass(GridStack.Engine),
     resizable: {
       handles: 'n,e,se,s,sw,w,nw'
     }

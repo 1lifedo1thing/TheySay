@@ -74,8 +74,8 @@ npm run dist:linux      # Linux x64 (.AppImage & .deb)
    - Compares incoming tweets with cached tweets on the fly.
    - Halts scrolling as soon as it hits the previously fetched boundary.
    - Gathers only brand-new tweets and prepends them, completing in ~1s if no new posts were published.
-4. **GridStack Drag-and-Drop, Multi-Size Options & Smooth Column Focus**:
-   - Powered by GridStack.js: rearrange cards by dragging the header handle (`⠿`).
+4. **GridStack Drag-and-Drop, Horizontal Swap, Multi-Size Options & Smooth Column Focus**:
+   - Powered by GridStack.js with a custom horizontal block-swap engine (`createHorizontalSwapEngineClass`): rearrange cards by dragging the header bar. When dragging a card horizontally (including multi-row tall cards such as `2×1` or `3×1`, multi-column wide cards such as `2×2`, or shorter cards dragged onto taller cards), the matching horizontal block of target cards swaps cleanly into the dragged card's original position instead of squeezing or pushing cards vertically up or down.
    - Size Options Menu: Choose between `1×1` (default), `2×1` (2 rows × 1 col, vertical double), `3×1` (3 rows × 1 col, vertical triple), and `2×2` (2 rows × 2 cols, spotlight square), or clear the card with one click.
    - Smooth Column Focus: Clicking a post bubble (in the background while opening the popup), blank space, or the edge resize handle area inside a section smoothly increases its vertical height while squeezing the other sections in the same column to half their original height; clicking blank space or the resize handle area again, staying in the same section for > 20s, or moving the cursor to a section's header (the username bar) smoothly restores normal heights.
    - Collision Protection: Checks if target area is occupied by slots with active content. Displays a warning toast and shakes conflicting cards in red if occupied.
