@@ -1084,6 +1084,26 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
                 images: []
               }
             ]
+          },
+          1: {
+            handle: 'OpenAI',
+            source: 'twitter',
+            displayName: 'OpenAI',
+            userHandle: '@OpenAI',
+            avatarUrl: '',
+            lastFetchedAt: Date.now(),
+            posts: [
+              {
+                id: '1900000000000099999',
+                text: 'Cached OpenAI status update.',
+                time: timestamp,
+                url: 'https://x.com/OpenAI/status/1900000000000099999',
+                isPinned: false,
+                isRetweet: false,
+                isUnread: false,
+                images: []
+              }
+            ]
           }
         };
         const { clearAllPostCache, saveAllSlotCache } = require('./src/core/storage');
