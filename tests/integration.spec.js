@@ -2533,12 +2533,12 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await autoUpdateSelect.selectOption('false');
     await expect(autoUpdateSelect).toHaveValue('false');
 
-    // Mock GitHub Release API returning current version v1.0.3 (up to date)
+    // Mock GitHub Release API returning current version v1.1.0 (up to date)
     await page.evaluate(async () => {
       const { ipcRenderer } = require('electron');
       await ipcRenderer.invoke('set-mock-update-release', {
-        tag_name: 'v1.0.3',
-        html_url: 'https://github.com/laike9m/TheySay/releases/tag/v1.0.3',
+        tag_name: 'v1.1.0',
+        html_url: 'https://github.com/laike9m/TheySay/releases/tag/v1.1.0',
         assets: []
       });
     });
@@ -2546,7 +2546,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const btnCheckUpdates = page.locator('#btn-check-updates');
     const statusText = page.locator('#setting-update-status-text');
     await btnCheckUpdates.click();
-    await expect(statusText).toContainText('1.0.3');
+    await expect(statusText).toContainText('1.1.0');
     await expect(btnCheckUpdates).not.toHaveClass(/is-update-available/);
     await expect(page.locator('#btn-settings')).not.toHaveClass(/has-update-badge/);
 
