@@ -5,7 +5,6 @@ import {
   Paper,
   ActionIcon,
   Button,
-  NativeSelect,
   Divider,
   Title,
   Tooltip
@@ -15,11 +14,11 @@ import {
   IconSun,
   IconMoon,
   IconSettings,
-  IconLayoutGrid,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand
 } from '@tabler/icons-react';
 import { BrandLogoIcon } from '../icons/PlatformIcons';
+import { GridLayoutPicker } from './GridLayoutPicker';
 import { LoginDropdownMenu } from './LoginDropdownMenu';
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'theysay_sidebar_collapsed';
@@ -84,7 +83,6 @@ export function TopNav() {
   const labels = isEn
     ? {
         markAllRead: 'Mark All Read',
-        gridLayout: 'Grid Layout',
         loginMenu: 'Accounts',
         themeToggle: isLight ? 'Switch to dark mode' : 'Switch to light mode',
         themeLabel: isLight ? 'Light Mode' : 'Dark Mode',
@@ -93,7 +91,6 @@ export function TopNav() {
       }
     : {
         markAllRead: '全部已读',
-        gridLayout: '网格布局',
         loginMenu: '登录账号',
         themeToggle: isLight ? '切换深色模式' : '切换浅色模式',
         themeLabel: isLight ? '浅色模式' : '深色模式',
@@ -179,46 +176,8 @@ export function TopNav() {
           </Button>
         </Tooltip>
 
-        {/* 2. 网格布局切换器 (Mantine NativeSelect) */}
-        <Tooltip
-          label={labels.gridLayout}
-          position="right"
-          withArrow
-          disabled={!collapsed}
-        >
-          <Group className="sidebar-nav-item layout-control-group" gap={8} wrap="nowrap">
-            <span className="sidebar-icon-wrap">
-              <IconLayoutGrid
-                className="layout-grid-icon"
-                size={18}
-                stroke={1.8}
-                aria-hidden="true"
-              />
-            </span>
-            <label
-              htmlFor="layout-select"
-              className="control-label sidebar-label-text"
-              data-i18n="nav.gridLayout"
-            >
-              网格布局:
-            </label>
-            <NativeSelect
-              id="layout-select"
-              size="xs"
-              defaultValue="2x2"
-              classNames={{
-                root: 'mantine-layout-select-root',
-                input: 'layout-select'
-              }}
-            >
-              <option value="2x2">2 × 2</option>
-              <option value="2x3">2 × 3</option>
-              <option value="3x2">3 × 2</option>
-              <option value="3x3">3 × 3</option>
-              <option value="4x4">4 × 4</option>
-            </NativeSelect>
-          </Group>
-        </Tooltip>
+        {/* 2. 网格布局选择器 (Google Docs 风格 4×4 交互式网格) */}
+        <GridLayoutPicker collapsed={collapsed} isEn={isEn} />
 
         {/* 3. 登录账号与 Profile 下拉菜单 */}
         <LoginDropdownMenu

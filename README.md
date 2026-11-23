@@ -16,7 +16,7 @@ Download the latest installer for **macOS**, **Windows**, or **Linux** from **[G
 
 ## Highlights
 
-- **One Screen for Every Account (`1×1` to `4×4` Layouts)**: Watch real-time updates from multiple followed accounts side by side in a single view. Choose any grid layout from `1×1` up to `4×4`, freely drag and resize cards to spotlight key feeds, and type any username to quickly add accounts across X and Threads—or paste a link to follow any public or private Discord channel.
+- **One Screen for Every Account (`1×1` to `4×4` Layouts)**: Watch real-time updates from multiple followed accounts side by side in a single view. Choose any grid layout from `1×1` up to `4×4`, freely drag, resize, or close extra cards to craft asymmetric layouts that spotlight key feeds, and type any username to quickly add accounts across X and Threads—or paste a link to follow any public or private Discord channel.
 
 - **Distraction-Free Chat-Style Reading, Full Local History & Pinning**: Updates appear in clean, chronological chat bubbles instead of cluttered social media timelines, with all scraped historical messages preserved locally in SQLite so older updates never disappear as new ones arrive. Web links automatically display readable page titles, images sit neatly beside the text, clicking any message opens the full post, quoted thread, or high-resolution media in a focused popup reader, and you can pin one or multiple key posts right below any card's header for quick reference.
 
@@ -31,7 +31,7 @@ Download the latest installer for **macOS**, **Windows**, or **Linux** from **[G
 On your first launch, an interactive spotlight guide (`driver.js`) walks you through signing in and showcases all three supported input formats right inside a single pop-up:
 
 1. **Connect Your Accounts**: Use the left sidebar to sign in to X, Threads, or Discord (your session stays 100% local on your device).
-2. **Set Up Your Grid**: Pick a layout from `1×1` to `4×4` in the sidebar, then click any card header to enter an `@handle` (`elonmusk`, `@OpenAI`), a Threads profile (`threads:@zuck`, `threads.com/@mosseri`), or a Discord channel link (`https://discord.com/channels/...`).
+2. **Set Up Your Grid**: Use the visual 4×4 grid picker in the sidebar to choose any layout from `1×1` to `4×4` (such as `2×3`, `3×2`, or `1×4`), then click any card header to enter an `@handle` (`elonmusk`, `@OpenAI`), a Threads profile (`threads:@zuck`, `threads.com/@mosseri`), or a Discord channel link (`https://discord.com/channels/...`).
 3. **Customize Your Workflow**: Click the bell icon on any card to toggle desktop notifications, or open **Settings** to adjust refresh intervals, ticker colors, language (`English` / `中文`), and keyword filters.
 
 ## License

@@ -55,6 +55,8 @@ const {
   calculateCellHeight,
   parsePreset,
   disableGridDomSorting,
+  syncGridSlotsState,
+  removeSlotFromGrid,
   applyGridLayout,
   requestSlotResize,
   initColumnHoverEffect
@@ -83,7 +85,11 @@ const { initTickers, applyTickerColors } = require('./src/core/ticker');
 const { getCanonicalTargetKey } = require('./src/core/source');
 const { showToast } = require('./src/core/utils');
 const { t, applyPageLocalization } = require('./src/core/i18n');
-const { mountMantineShell } = require('./src/ui/dist/mantine-shell');
+const {
+  mountMantineShell,
+  syncMantineGridPreset,
+  closeMantineLayoutPicker
+} = require('./src/ui/dist/mantine-shell');
 const {
   initOnboarding,
   refreshOnboardingLocaleUI
@@ -102,7 +108,6 @@ mountMantineShell();
 
 // UI Elements - Global
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
-const layoutSelect = document.getElementById('layout-select');
 const btnMarkAllRead = document.getElementById('btn-mark-all-read');
 const gridContainer = document.getElementById('grid-stack-container');
 const bgWebviewsContainer = document.getElementById('bg-webviews-container');
@@ -137,6 +142,20 @@ function handleSlotResize(slot, targetW, targetH) {
     currentCols,
     slots
   });
+}
+
+function handleSlotClose(slot) {
+  removeSlotFromGrid({
+    grid,
+    slot,
+    slots,
+    rows: currentRows,
+    cols: currentCols
+  });
+}
+
+function getAttachedSlots() {
+  return slots.filter(s => s && s.element && s.element.parentElement);
 }
 
 function getGridDimensions() {
@@ -376,13 +395,14 @@ async function handleImportProfile() {
       saveRawGridLayout(importedLayout);
     }
 
-    const nextPreset =
-      typeof settings.gridPreset === 'string' && /^\d+x\d+$/.test(settings.gridPreset)
+    const rawPreset =
+      typeof settings.gridPreset === 'string' && /^\s*\d+\s*x\s*\d+\s*$/i.test(settings.gridPreset)
         ? settings.gridPreset
         : getStoredPreset();
+    const { rows: nextRows, cols: nextCols } = parsePreset(rawPreset);
+    const nextPreset = `${nextRows}x${nextCols}`;
     saveStoredPreset(nextPreset);
-    if (layoutSelect) layoutSelect.value = nextPreset;
-    const { rows: nextRows, cols: nextCols } = parsePreset(nextPreset);
+    syncMantineGridPreset(nextPreset);
     currentRows = nextRows;
     currentCols = nextCols;
 
@@ -411,7 +431,7 @@ async function handleImportProfile() {
     }
 
     // Trigger background fetch for any active slot that has a handle/channel but no cached data yet
-    const activeSlots = slots.slice(0, getActiveSlotCount());
+    const activeSlots = getAttachedSlots();
     const hasUncachedTwitter = activeSlots.some(
       s => s && s.handleInput && s.handleInput.value.trim() && s.source !== 'discord' && s.source !== 'threads' && (!s.loadedPosts || s.loadedPosts.length === 0)
     );
@@ -467,6 +487,7 @@ window.addEventListener('DOMContentLoaded', () => {
     bgWebviewsContainer,
     onFetch: handleFetchSlot,
     onResize: handleSlotResize,
+    onClose: handleSlotClose,
     getGridDimensions
   });
 
@@ -522,8 +543,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Initialize GridStack
   const savedPreset = getStoredPreset();
-  if (layoutSelect) layoutSelect.value = savedPreset;
   const { rows, cols } = parsePreset(savedPreset);
+  const normalizedPreset = `${rows}x${cols}`;
+  if (normalizedPreset !== savedPreset) {
+    saveStoredPreset(normalizedPreset);
+  }
+  syncMantineGridPreset(normalizedPreset);
   currentRows = rows;
   currentCols = cols;
 
@@ -566,7 +591,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // If any active Twitter or Discord slot has legacy cached messages from before image URL extraction,
   // automatically refresh in the background once to populate inline image thumbnails.
-  const hasLegacyTwitterCache = slots.slice(0, getActiveSlotCount()).some(
+  const hasLegacyTwitterCache = getAttachedSlots().some(
     s => s && s.source !== 'discord' && s.source !== 'threads' && Array.isArray(s.loadedPosts) && s.loadedPosts.some(m => !Array.isArray(m.images))
   );
   if (hasLegacyTwitterCache) {
@@ -579,7 +604,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }, 900);
   }
 
-  const hasLegacyDiscordCache = slots.slice(0, getActiveSlotCount()).some(
+  const hasLegacyDiscordCache = getAttachedSlots().some(
     s => s && s.source === 'discord' && Array.isArray(s.loadedPosts) && s.loadedPosts.some(m => !Array.isArray(m.images))
   );
   if (hasLegacyDiscordCache) {
@@ -603,25 +628,32 @@ window.addEventListener('DOMContentLoaded', () => {
       });
     }
     saveGridLayout(grid);
+    syncGridSlotsState(grid, slots, { rows: currentRows, cols: currentCols });
   });
 
-  // Layout preset dropdown change
-  if (layoutSelect) {
-    layoutSelect.addEventListener('change', () => {
-      const val = layoutSelect.value;
-      saveStoredPreset(val);
-      const { rows: nextRows, cols: nextCols } = parsePreset(val);
-      currentRows = nextRows;
-      currentCols = nextCols;
-      applyGridLayout({
-        grid,
-        gridContainer,
-        slots,
-        rows: nextRows,
-        cols: nextCols,
-        resetPositions: true,
-        maxSlots: MAX_SLOTS
-      });
+  // Grid layout picker selection change (1x1 to 4x4)
+  window.addEventListener('theysay:grid-preset-change', (e) => {
+    const rawVal = e && e.detail && e.detail.preset;
+    if (!rawVal) return;
+    const { rows: nextRows, cols: nextCols } = parsePreset(rawVal);
+    const normalized = `${nextRows}x${nextCols}`;
+    saveStoredPreset(normalized);
+    currentRows = nextRows;
+    currentCols = nextCols;
+    applyGridLayout({
+      grid,
+      gridContainer,
+      slots,
+      rows: nextRows,
+      cols: nextCols,
+      resetPositions: true,
+      maxSlots: MAX_SLOTS
+    });
+  });
+
+  if (ipcRenderer) {
+    ipcRenderer.on('global-escape', () => {
+      closeMantineLayoutPicker();
     });
   }
 

@@ -231,4 +231,18 @@ export function renderMantineOnboardingContent(containerEl, props) {
   renderInSubtreeRoot(containerEl, <OnboardingPopoverContent {...props} />);
 }
 
+export function syncMantineGridPreset(preset) {
+  if (typeof window === 'undefined' || !preset) return;
+  window.dispatchEvent(
+    new CustomEvent('theysay:sync-grid-preset', {
+      detail: { preset: String(preset) }
+    })
+  );
+}
+
+export function closeMantineLayoutPicker() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('theysay:close-layout-picker'));
+}
+
 

@@ -111,6 +111,8 @@ function createSlotWidget(index) {
     clearBtnTitle: t('slot.clearBtnTitle'),
     mutedTitle: t('slot.mutedTitle'),
     muteAriaLabel: t('slot.muteAriaLabel'),
+    closeBtnTitle: t('slot.closeBtnTitle'),
+    closeAriaLabel: t('slot.closeAriaLabel'),
     expandBtnTitle: t('slot.expandBtnTitle'),
     placeholderText: t('slot.placeholderText'),
     loadingText: t('slot.loadingText')
@@ -2172,7 +2174,7 @@ function toggleSlotSizeMenu(slot, { slots, getGridDimensions, onResize }) {
   syncSlotHeaderOpenMenuState(slot);
 }
 
-function bindSlotEvents(slot, { slots, onFetch, onResize, getGridDimensions }) {
+function bindSlotEvents(slot, { slots, onFetch, onResize, onClose, getGridDimensions }) {
   const updateClearVisibility = () => {
     if (slot.btnClear) {
       slot.btnClear.style.display = slot.handleInput.value.trim().length > 0 ? 'flex' : 'none';
@@ -2388,6 +2390,16 @@ function bindSlotEvents(slot, { slots, onFetch, onResize, getGridDimensions }) {
     });
   }
 
+  // Close / remove card from grid
+  if (slot.btnClose) {
+    slot.btnClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof onClose === 'function') {
+        onClose(slot);
+      }
+    });
+  }
+
   // Expand / Size Menu trigger
   if (slot.btnExpand) {
     slot.btnExpand.addEventListener('click', (e) => {
@@ -2397,7 +2409,7 @@ function bindSlotEvents(slot, { slots, onFetch, onResize, getGridDimensions }) {
   }
 }
 
-function initSlotsRegistry({ slotsCount = MAX_SLOTS, bgWebviewsContainer, onFetch, onResize, getGridDimensions }) {
+function initSlotsRegistry({ slotsCount = MAX_SLOTS, bgWebviewsContainer, onFetch, onResize, onClose, getGridDimensions }) {
   const savedHandles = getSavedHandles();
   const savedMuted = getMutedSlots();
   const slots = [];
@@ -2426,6 +2438,7 @@ function initSlotsRegistry({ slotsCount = MAX_SLOTS, bgWebviewsContainer, onFetc
       sourceDropdown: el.querySelector(`#slot-source-dropdown-${i}`),
       btnMute: el.querySelector(`#btn-mute-${i}`),
       muteIcon: el.querySelector(`#mute-icon-${i}`),
+      btnClose: el.querySelector(`#btn-close-${i}`),
       btnExpand: el.querySelector(`#btn-expand-${i}`),
       expandIcon: el.querySelector(`#expand-icon-${i}`),
       sizeMenu: el.querySelector(`#size-menu-${i}`),
@@ -2476,7 +2489,7 @@ function initSlotsRegistry({ slotsCount = MAX_SLOTS, bgWebviewsContainer, onFetc
     updateSlotExpiredUI(slot);
 
     slots.push(slot);
-    bindSlotEvents(slot, { slots, onFetch, onResize, getGridDimensions });
+    bindSlotEvents(slot, { slots, onFetch, onResize, onClose, getGridDimensions });
   }
 
   registeredSlots = slots;
@@ -2769,6 +2782,10 @@ function localizeSlotsUI(slots) {
     }
     if (slot.handleInput) slot.handleInput.placeholder = t('slot.inputPlaceholder');
     if (slot.btnClear) slot.btnClear.title = t('slot.clearBtnTitle');
+    if (slot.btnClose) {
+      slot.btnClose.title = t('slot.closeBtnTitle');
+      slot.btnClose.setAttribute('aria-label', t('slot.closeAriaLabel'));
+    }
     if (slot.placeholder) {
       const p = slot.placeholder.querySelector('p');
       if (p) p.textContent = t('slot.placeholderText');

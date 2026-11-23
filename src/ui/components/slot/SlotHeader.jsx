@@ -4,7 +4,8 @@ import {
   IconPencil,
   IconBrandX,
   IconBrandDiscord,
-  IconBrandThreads
+  IconBrandThreads,
+  IconX
 } from '@tabler/icons-react';
 import { SlotMuteIcon } from './SlotIcons';
 
@@ -125,6 +126,21 @@ export function SlotHeader({ index, labels = {} }) {
         <span className="mute-icon-wrap" id={`mute-icon-${index}`}>
           <SlotMuteIcon isMuted={true} />
         </span>
+      </ActionIcon>
+
+      <ActionIcon
+        component="button"
+        type="button"
+        variant="subtle"
+        color="gray"
+        size={19}
+        radius="xl"
+        className="slot-btn-close"
+        id={`btn-close-${index}`}
+        title={labels.closeBtnTitle || '关闭此卡片'}
+        aria-label={labels.closeAriaLabel || '关闭此卡片'}
+      >
+        <IconX size={12} stroke={2.2} aria-hidden="true" />
       </ActionIcon>
 
       {/* Platform Source Picker Dropdown */}

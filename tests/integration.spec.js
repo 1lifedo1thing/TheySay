@@ -22,6 +22,16 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
   let page;
   let userDataDir;
 
+  async function selectGridLayout(targetPage, preset) {
+    await targetPage.locator('#layout-select').click();
+    const popover = targetPage.locator('#layout-picker-popover');
+    await expect(popover).toBeVisible();
+    const cell = popover.locator(`.layout-picker-cell[data-preset="${preset}"]`);
+    await cell.hover();
+    await cell.click();
+    await expect(popover).toBeHidden();
+  }
+
   test.beforeAll(async () => {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'theysay-integration-'));
     fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
@@ -134,7 +144,9 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await expect(page.locator('#btn-mark-all-read')).toBeVisible();
     await expect(page.locator('#btn-mark-all-read')).toHaveClass(/mantine-Button-root/);
     await expect(page.locator('#layout-select')).toBeVisible();
-    await expect(page.locator('#layout-select')).toHaveClass(/mantine-NativeSelect-input/);
+    await expect(page.locator('#layout-select')).toHaveClass(/mantine-Button-root/);
+    await expect(page.locator('#layout-select')).toHaveClass(/layout-picker-trigger/);
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
     await expect(page.locator('#btn-theme-toggle')).toBeVisible();
     await expect(page.locator('#btn-settings')).toBeVisible();
     await expect(page.locator('#btn-settings')).toHaveClass(/mantine-ActionIcon-root/);
@@ -144,12 +156,136 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
   test('2. Grid layout presets, slot mute toggle & borderless TradingView header', async () => {
     // Default preset is 2x2 (4 visible slots)
-    await expect(page.locator('#layout-select')).toHaveValue('2x2');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
 
-    // Switch layout preset to 3x3 (9 visible slots)
-    await page.selectOption('#layout-select', '3x3');
+    // Open Google Docs-style 4x4 grid layout picker popover and verify hover preview
+    await page.locator('#layout-select').click();
+    const layoutPopover = page.locator('#layout-picker-popover');
+    await expect(layoutPopover).toBeVisible();
+    await expect(layoutPopover.locator('.layout-picker-cell')).toHaveCount(16);
+    await expect(layoutPopover.locator('.layout-picker-cell.is-current')).toHaveCount(4);
+    await expect(layoutPopover.locator('#layout-picker-dimension .layout-picker-dim-value')).toHaveText('2 × 2');
+
+    // Hover 2x3 cell (2 rows x 3 cols = 6 highlighted preview cells)
+    await layoutPopover.locator('.layout-picker-cell[data-preset="2x3"]').hover();
+    await expect(layoutPopover.locator('.layout-picker-cell.is-previewing')).toHaveCount(6);
+    await expect(layoutPopover.locator('.layout-picker-cell[data-preset="2x3"]')).toHaveClass(/is-cursor/);
+    await expect(layoutPopover.locator('#layout-picker-dimension .layout-picker-dim-value')).toHaveText('2 × 3');
+
+    // Hover 1x4 cell (1 row x 4 cols = 4 highlighted preview cells)
+    await layoutPopover.locator('.layout-picker-cell[data-preset="1x4"]').hover();
+    await expect(layoutPopover.locator('.layout-picker-cell.is-previewing')).toHaveCount(4);
+    await expect(layoutPopover.locator('#layout-picker-dimension .layout-picker-dim-value')).toHaveText('1 × 4');
+
+    // Escape closes popover without changing active layout
+    await page.keyboard.press('Escape');
+    await expect(layoutPopover).toBeHidden();
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+
+    // Select non-square 2x3 layout (2 rows x 3 cols = 6 visible slots) and verify geometry
+    await selectGridLayout(page, '2x3');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    const coords2x3 = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#grid-stack-container > .grid-stack-item')).map((el) => ({
+        x: el.gridstackNode.x,
+        y: el.gridstackNode.y
+      }))
+    );
+    expect(Math.max(...coords2x3.map((p) => p.x))).toBe(2);
+    expect(Math.max(...coords2x3.map((p) => p.y))).toBe(1);
+
+    // Select 1x1 layout (single full-screen slot) and verify close button is hidden when only 1 card remains
+    await selectGridLayout(page, '1x1');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '1x1');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(1);
+    await expect(page.locator('#btn-close-0')).toBeHidden();
+
+    // Verify resizing a card to 2x height in 2x3 pushes the slot underneath into overflow,
+    // clicking its close (×) button removes it, the 5-card layout persists across reload,
+    // and re-selecting 2x3 in the layout picker restores all 6 slots cleanly.
+    await selectGridLayout(page, '2x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    await expect(page.locator('#btn-close-5')).toBeVisible();
+    await page.waitForTimeout(250);
+
+    // Drag the bottom resize handle of slot 2 (top-right, x=2, y=0) down to span 2 rows
+    const slot2Item = page.locator('.grid-stack-item[data-slot-index="2"]');
+    await slot2Item.hover();
+    const resizeHandle2 = slot2Item.locator('.ui-resizable-s');
+    await expect(resizeHandle2).toBeVisible();
+    const slot5Box = await page.locator('.grid-stack-item[data-slot-index="5"]').boundingBox();
+    const rhBox = await resizeHandle2.boundingBox();
+    await page.mouse.move(rhBox.x + rhBox.width / 2, rhBox.y + rhBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      rhBox.x + rhBox.width / 2,
+      slot5Box.y + slot5Box.height - 8,
+      { steps: 12 }
+    );
+    await page.waitForTimeout(200);
+    await page.mouse.up();
+
+    // Slot 2 is now h=2 and pushed slot 5 below row 2 (marked .is-grid-overflow)
+    await expect(page.locator('.grid-stack-item[data-slot-index="2"]')).toHaveAttribute('gs-h', '2');
+    const pushedSlot5 = page.locator('.grid-stack-item[data-slot-index="5"]');
+    await expect(pushedSlot5).toHaveAttribute('gs-y', '2');
+    await expect(pushedSlot5).toHaveClass(/is-grid-overflow/);
+
+    // Close the pushed-down extra slot 5 via its header × button
+    await page.locator('#btn-close-5').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(5);
+    await expect(page.locator('#slot-card-5')).toHaveCount(0);
+    await expect(page.locator('.grid-stack-item.is-grid-overflow')).toHaveCount(0);
+
+    // Reload and verify the 5-card asymmetric layout persists (slot 2 stays h=2, slot 5 stays closed)
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(5);
+    await expect(page.locator('.grid-stack-item[data-slot-index="2"]')).toHaveAttribute('gs-h', '2');
+    await expect(page.locator('#slot-card-5')).toHaveCount(0);
+
+    // Re-selecting 2x3 in the layout picker restores all 6 slots cleanly
+    await selectGridLayout(page, '2x3');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    const slot2RestoredH = await page
+      .locator('.grid-stack-item[data-slot-index="2"]')
+      .evaluate((el) => (el.gridstackNode && el.gridstackNode.h) || 1);
+    expect(slot2RestoredH).toBe(1);
+
+    // Select 1x4 layout (1 row x 4 columns)
+    await selectGridLayout(page, '1x4');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '1x4');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+    const coords1x4 = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#grid-stack-container > .grid-stack-item')).map((el) => ({
+        x: el.gridstackNode.x,
+        y: el.gridstackNode.y
+      }))
+    );
+    expect(coords1x4.every((p) => p.y === 0)).toBe(true);
+    expect(Math.max(...coords1x4.map((p) => p.x))).toBe(3);
+
+    // Select 4x1 layout (4 rows x 1 column)
+    await selectGridLayout(page, '4x1');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '4x1');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+    const coords4x1 = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#grid-stack-container > .grid-stack-item')).map((el) => ({
+        x: el.gridstackNode.x,
+        y: el.gridstackNode.y
+      }))
+    );
+    expect(coords4x1.every((p) => p.x === 0)).toBe(true);
+    expect(Math.max(...coords4x1.map((p) => p.y))).toBe(3);
+
+    // Switch layout preset to 3x3 (9 visible slots) and verify expanded sidebar badge
+    await selectGridLayout(page, '3x3');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(9);
+    await page.locator('#btn-sidebar-toggle').click();
+    await expect(page.locator('#layout-picker-badge')).toHaveText('3 × 3');
+    await page.locator('#btn-sidebar-toggle').click();
 
     const storedPreset = await page.evaluate(
       (key) => localStorage.getItem(key),
@@ -158,7 +294,8 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(storedPreset).toBe('3x3');
 
     // Switch back to 2x2
-    await page.selectOption('#layout-select', '2x2');
+    await selectGridLayout(page, '2x2');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
 
     // Toggle slot 0 mute button
@@ -362,6 +499,15 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.locator('#btn-settings-close').click();
     await expect(settingsOverlay).toHaveClass(/is-closed/);
 
+    // Verify close button (×) is pinned to the far right edge of the card header in author mode
+    const closeBtnRightGap = await page.evaluate(() => {
+      const header = document.querySelector('#slot-card-0 .slot-header');
+      const closeBtn = document.getElementById('btn-close-0');
+      if (!header || !closeBtn) return Infinity;
+      return Math.abs(header.getBoundingClientRect().right - closeBtn.getBoundingClientRect().right);
+    });
+    expect(closeBtnRightGap).toBeLessThanOrEqual(14);
+
     // Verify post bubble and stock ticker highlights ($NVDA and AAPL)
     await expect(page.locator('#slot-content-0 .im-date-pill').first()).toHaveClass(
       /mantine-Badge-root/
@@ -421,7 +567,8 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(exportedJson.handles[0]).toBe('elonmusk');
 
     // Mutate current state to 3x2 layout and different theme before importing back
-    await page.selectOption('#layout-select', '3x2');
+    await selectGridLayout(page, '3x2');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '3x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
 
     // Trigger Import Profile from Login dropdown menu
@@ -429,7 +576,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await page.locator('#item-import-profile').click();
 
     // Verify state is restored to exported 2x2 preset and cached posts remain intact
-    await expect(page.locator('#layout-select')).toHaveValue('2x2');
+    await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
     await expect(page.locator('#author-name-0')).toHaveText('Elon Musk');
   });
@@ -542,6 +689,13 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     );
     expect(savedLangEn).toBe('en');
     await expect(page).toHaveTitle('TheySay - Follow What People Say');
+    await expect(page.locator('#layout-select [data-i18n="nav.gridLayout"]')).toHaveText('Layout');
+    await page.locator('#layout-select').click();
+    await expect(page.locator('#layout-picker-popover')).toBeVisible();
+    await expect(page.locator('#layout-picker-popover .layout-picker-title')).toHaveText('Grid Layout');
+    await expect(page.locator('#layout-picker-dimension .layout-picker-dim-detail')).toHaveText('2 rows · 2 cols');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#layout-picker-popover')).toBeHidden();
 
     // Switch to Chinese ('zh') and verify UI updates to Chinese & persists to disk immediately
     const prefFilePath = path.join(userDataDir, 'preferences.json');
@@ -561,6 +715,13 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     }, { timeout: 3000 }).toBe('zh');
 
     await page.locator('#btn-settings-close').click();
+    await expect(page.locator('#layout-select [data-i18n="nav.gridLayout"]')).toHaveText('网格布局');
+    await page.locator('#layout-select').click();
+    await expect(page.locator('#layout-picker-popover')).toBeVisible();
+    await expect(page.locator('#layout-picker-popover .layout-picker-title')).toHaveText('网格布局');
+    await expect(page.locator('#layout-picker-dimension .layout-picker-dim-detail')).toHaveText('2 行 · 2 列');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#layout-picker-popover')).toBeHidden();
     const savedLangZh = await page.evaluate(
       (key) => localStorage.getItem(key),
       STORAGE_LANGUAGE_KEY
@@ -662,7 +823,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
 
     // 1. Switch to 3x3 preset and drag slot-0 (top-left, y=0) down to bottom-left (y=2),
     // swapping with slot-6 (originally y=2) — previously reverted on restart due to out-of-order packing
-    await page.selectOption('#layout-select', '3x3');
+    await selectGridLayout(page, '3x3');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(9);
     await page.waitForTimeout(350);
 
@@ -671,7 +832,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const box0 = await handle0.boundingBox();
     const box6 = await slot6.boundingBox();
 
-    const dragStartX0 = box0.x + box0.width - 24;
+    const dragStartX0 = box0.x + box0.width - 56;
     const dragStartY0 = box0.y + box0.height / 2;
     await page.mouse.move(dragStartX0, dragStartY0);
     await page.mouse.down();
@@ -690,7 +851,7 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(posAfter3x3Reload).toEqual(posAfter3x3Drag);
 
     // 2. Switch to 2x2, perform a diagonal drag (slot-0 onto slot-3) AND close + reopen the Electron app
-    await page.selectOption('#layout-select', '2x2');
+    await selectGridLayout(page, '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
     await page.waitForTimeout(350);
 

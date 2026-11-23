@@ -315,56 +315,138 @@ body {
   border: 0;
 }
 
-/* Layout Control Select inside Sidebar */
-.layout-control-group {
-  position: relative;
-}
-
-.control-label {
-  cursor: pointer;
-}
-
-.top-nav.is-expanded .mantine-layout-select-root {
-  margin-left: auto;
-}
-
-.top-nav.is-collapsed .mantine-layout-select-root {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.top-nav.is-collapsed .mantine-layout-select-root .mantine-NativeSelect-wrapper {
-  width: 100%;
-  height: 100%;
-}
-
-.layout-select {
-  height: 100%;
-  background: none;
-  border: none;
+/* Grid Layout Picker (Google Docs-style 4×4 Matrix Popover) */
+.layout-picker-badge {
   color: var(--accent-blue);
   font-size: 12px;
   font-weight: 700;
-  outline: none;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.layout-picker-popover {
+  background-color: var(--bg-popover) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-popover) !important;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.layout-picker-header {
+  padding: 10px 14px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layout-picker-body {
+  padding: 12px 14px 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.layout-picker-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  user-select: none;
+}
+
+.layout-picker-row {
+  display: flex;
+  gap: 5px;
+}
+
+.layout-picker-cell {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1.5px solid #334155;
+  background-color: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   padding: 0;
-  margin: 0;
-  line-height: 26px;
+  transition:
+    background-color 0.08s ease,
+    border-color 0.08s ease,
+    transform 0.08s ease;
 }
 
-.top-nav.is-collapsed .layout-select {
+[data-theme="light"] .layout-picker-cell {
+  border-color: #cbd5e1;
+  background-color: #ffffff;
+}
+
+.layout-picker-cell:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
+}
+
+.layout-picker-cell.is-current {
+  background-color: rgba(29, 155, 240, 0.2);
+  border-color: var(--accent-blue);
+}
+
+[data-theme="light"] .layout-picker-cell.is-current {
+  background-color: rgba(29, 155, 240, 0.14);
+  border-color: var(--accent-blue);
+}
+
+.layout-picker-cell.is-previewing {
+  background-color: rgba(29, 155, 240, 0.28);
+  border-color: #38bdf8;
+}
+
+[data-theme="light"] .layout-picker-cell.is-previewing {
+  background-color: rgba(29, 155, 240, 0.2);
+  border-color: var(--accent-blue);
+}
+
+.layout-picker-cell.is-cursor {
+  background-color: rgba(29, 155, 240, 0.42);
+  border-color: #60c5ff;
+}
+
+[data-theme="light"] .layout-picker-cell.is-cursor {
+  background-color: rgba(29, 155, 240, 0.32);
+  border-color: #0984db;
+}
+
+.layout-picker-footer {
   width: 100%;
-  height: 100%;
-  min-height: 100%;
-  opacity: 0;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  line-height: 1.2;
 }
 
-.layout-select option {
-  background-color: var(--bg-nav);
+.layout-picker-dim-value {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--text-main);
+  transition: color 0.1s ease;
+}
+
+.layout-picker-footer.is-previewing .layout-picker-dim-value {
+  color: var(--accent-blue);
+}
+
+.layout-picker-dim-detail {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 /* Tool Buttons outside Sidebar (e.g. Settings modal buttons) */
@@ -1449,6 +1531,43 @@ body {
 .slot-btn-mute.is-unmuted:hover {
   color: var(--slot-header-active-icon, var(--accent-blue-hover));
   background-color: var(--slot-header-active-bg, rgba(29, 155, 240, 0.24));
+}
+
+/* Close / Remove Slot Card Button */
+.slot-btn-close {
+  margin-left: auto;
+  background-color: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--slot-header-subtext, var(--text-muted));
+  width: 19px;
+  height: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  opacity: 0.45;
+  transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.slot-card:hover .slot-btn-close,
+.slot-header:hover .slot-btn-close,
+.slot-btn-close:focus-visible {
+  opacity: 0.9;
+}
+
+.grid-stack-item.is-grid-overflow .slot-btn-close {
+  opacity: 1;
+  background-color: var(--slot-header-pill-bg, rgba(19, 23, 34, 0.055));
+}
+
+.slot-btn-close:hover,
+.grid-stack-item.is-grid-overflow .slot-btn-close:hover {
+  opacity: 1;
+  color: #ffffff;
+  background-color: rgba(244, 33, 46, 0.88);
 }
 
 /* Expand / Size Menu Trigger Button */
@@ -3767,26 +3886,6 @@ body {
   pointer-events: none !important;
 }
 
-.mantine-layout-select-root .mantine-NativeSelect-wrapper {
-  height: 26px;
-}
-
-.mantine-layout-select-root .mantine-NativeSelect-section {
-  display: none;
-}
-
-.mantine-layout-select-root .layout-select {
-  height: 26px;
-  min-height: 26px;
-  background: transparent;
-  border: none;
-  color: var(--accent-blue);
-  font-size: 12px;
-  font-weight: 700;
-  padding: 0 2px;
-  line-height: 26px;
-}
-
 .mantine-settings-select-root .mantine-NativeSelect-input.settings-select {
   height: 28px;
   min-height: 28px;
@@ -3898,7 +3997,8 @@ body {
   width: 100%;
 }
 
-.top-nav.is-expanded .mantine-Button-root.login-dropdown-btn .mantine-Button-section[data-position="right"] {
+.top-nav.is-expanded .mantine-Button-root.login-dropdown-btn .mantine-Button-section[data-position="right"],
+.top-nav.is-expanded .mantine-Button-root.layout-picker-trigger .mantine-Button-section[data-position="right"] {
   margin-left: auto;
 }
 
@@ -3928,6 +4028,7 @@ body {
 .mantine-Button-root.sidebar-nav-item:hover,
 .mantine-ActionIcon-root.sidebar-nav-item:hover,
 .mantine-Button-root.login-dropdown-btn.active,
+.mantine-Button-root.layout-picker-trigger.active,
 .mantine-ActionIcon-root.btn-settings.active {
   color: var(--text-main);
   background-color: var(--bg-control-hover);
@@ -4102,6 +4203,29 @@ body {
   border: none;
   border-radius: 999px;
   background-color: var(--slot-header-pill-bg, rgba(19, 23, 34, 0.055));
+}
+
+.mantine-ActionIcon-root.slot-btn-close {
+  margin-left: auto;
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  min-height: 19px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background-color: transparent;
+  color: var(--slot-header-subtext, var(--text-muted));
+}
+
+.grid-stack-item.is-grid-overflow .mantine-ActionIcon-root.slot-btn-close {
+  background-color: var(--slot-header-pill-bg, rgba(19, 23, 34, 0.055));
+}
+
+.mantine-ActionIcon-root.slot-btn-close:hover,
+.grid-stack-item.is-grid-overflow .mantine-ActionIcon-root.slot-btn-close:hover {
+  background-color: rgba(244, 33, 46, 0.88);
+  color: #ffffff;
 }
 
 .mantine-ActionIcon-root.slot-btn-expand {

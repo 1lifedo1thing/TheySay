@@ -985,7 +985,7 @@ async function runTwitterBackgroundFetch({ slots, bgWebviewsContainer, getActive
         break;
       }
       const slot = slots[i];
-      if (!slot) continue;
+      if (!slot || (slot.element && !slot.element.parentElement)) continue;
       const raw = slot.handleInput ? slot.handleInput.value.trim() : '';
       if (raw && detectSourceType(raw) === SOURCE_TWITTER && !slot.isFetching) {
         const res = await fetchTwitterSlot(i, { isBackground: true }, { slots, bgWebviewsContainer });
@@ -1026,7 +1026,7 @@ async function runDiscordBackgroundFetch({ slots, bgWebviewsContainer, getActive
         break;
       }
       const slot = slots[i];
-      if (!slot) continue;
+      if (!slot || (slot.element && !slot.element.parentElement)) continue;
       const raw = slot.handleInput ? slot.handleInput.value.trim() : '';
       if (raw && detectSourceType(raw) === SOURCE_DISCORD && !slot.isFetching) {
         const res = await fetchDiscordSlot(i, { isBackground: true }, { slots, bgWebviewsContainer });
@@ -1067,7 +1067,7 @@ async function runThreadsBackgroundFetch({ slots, bgWebviewsContainer, getActive
         break;
       }
       const slot = slots[i];
-      if (!slot) continue;
+      if (!slot || (slot.element && !slot.element.parentElement)) continue;
       const raw = slot.handleInput ? slot.handleInput.value.trim() : '';
       if (raw && detectSourceType(raw) === SOURCE_THREADS && !slot.isFetching) {
         const res = await fetchThreadsSlot(i, { isBackground: true }, { slots, bgWebviewsContainer });
