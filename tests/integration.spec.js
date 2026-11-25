@@ -3504,6 +3504,179 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await selectGridLayout(page, '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
   });
+
+  test('27. Empty grid area displays a plus (+) button that adds a new panel, persists across reload, and supports undo/redo', async () => {
+    // 1. Unit-level checks for computeEmptyGridRegions
+    const regionChecks = await page.evaluate(() => {
+      const { computeEmptyGridRegions } = require('./src/ui/grid');
+
+      // Full 2x2 grid -> no empty regions
+      const full2x2 = computeEmptyGridRegions(
+        [
+          { x: 0, y: 0, w: 1, h: 1 },
+          { x: 1, y: 0, w: 1, h: 1 },
+          { x: 0, y: 1, w: 1, h: 1 },
+          { x: 1, y: 1, w: 1, h: 1 }
+        ],
+        2,
+        2
+      );
+
+      // 3x4 asymmetric grid with only bottom-left (0, 2) empty (matches user layout)
+      const singleEmpty3x4 = computeEmptyGridRegions(
+        [
+          { x: 0, y: 0, w: 1, h: 1 },
+          { x: 0, y: 1, w: 1, h: 1 },
+          { x: 1, y: 0, w: 1, h: 2 },
+          { x: 1, y: 2, w: 1, h: 1 },
+          { x: 2, y: 0, w: 1, h: 1 },
+          { x: 2, y: 1, w: 1, h: 1 },
+          { x: 2, y: 2, w: 1, h: 1 },
+          { x: 3, y: 0, w: 1, h: 2 },
+          { x: 3, y: 2, w: 1, h: 1 }
+        ],
+        3,
+        4
+      );
+
+      // Column 0 has two stacked empty cells (0, 1) & (0, 2) -> merged into one vertical 1x2 region
+      const verticalRun = computeEmptyGridRegions(
+        [
+          { x: 0, y: 0, w: 1, h: 1 },
+          { x: 1, y: 0, w: 1, h: 3 }
+        ],
+        3,
+        2
+      );
+
+      // Adjacent columns with empty bottom cells -> one button per column
+      const horizontalEmpty = computeEmptyGridRegions(
+        [
+          { x: 0, y: 0, w: 1, h: 1 },
+          { x: 1, y: 0, w: 1, h: 1 }
+        ],
+        2,
+        2
+      );
+
+      // Overflow card below configured rows must not create empty regions in overflow rows
+      const withOverflow = computeEmptyGridRegions(
+        [
+          { x: 0, y: 0, w: 1, h: 1 },
+          { x: 1, y: 0, w: 1, h: 1 },
+          { x: 2, y: 0, w: 1, h: 2 },
+          { x: 0, y: 1, w: 1, h: 1 },
+          { x: 1, y: 1, w: 1, h: 1 },
+          { x: 2, y: 2, w: 1, h: 1 }
+        ],
+        2,
+        3
+      );
+
+      return { full2x2, singleEmpty3x4, verticalRun, horizontalEmpty, withOverflow };
+    });
+
+    expect(regionChecks.full2x2).toEqual([]);
+    expect(regionChecks.singleEmpty3x4).toEqual([{ x: 0, y: 2, w: 1, h: 1 }]);
+    expect(regionChecks.verticalRun).toEqual([{ x: 0, y: 1, w: 1, h: 2 }]);
+    expect(regionChecks.horizontalEmpty).toEqual([
+      { x: 0, y: 1, w: 1, h: 1 },
+      { x: 1, y: 1, w: 1, h: 1 }
+    ]);
+    expect(regionChecks.withOverflow).toEqual([]);
+
+    // Dismiss onboarding popover if running standalone
+    const closeOnboardingBtn = page.locator('.driver-popover-close-btn');
+    if (await closeOnboardingBtn.isVisible().catch(() => false)) {
+      await closeOnboardingBtn.click();
+    }
+
+    // 2. End-to-end Electron flow in 3x4 grid
+    await selectGridLayout(page, '3x4');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(12);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(0);
+
+    // Close bottom-left slot (x=0, y=2 -> slot 8) -> single '+' appears at (0, 2)
+    await page.locator('#btn-close-8').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(11);
+    const addBtn02 = page.locator('.grid-empty-slot-btn[data-empty-x="0"][data-empty-y="2"]');
+    await expect(addBtn02).toBeVisible();
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(1);
+    await expect(addBtn02).toHaveAttribute('data-empty-w', '1');
+    await expect(addBtn02).toHaveAttribute('data-empty-h', '1');
+
+    // Close (0, 1) (slot 4) as well -> column 0 now has one contiguous 1x2 empty area at (0, 1..2)
+    await page.locator('#btn-close-4').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(10);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(1);
+    const addBtn01Tall = page.locator('.grid-empty-slot-btn[data-empty-x="0"][data-empty-y="1"]');
+    await expect(addBtn01Tall).toBeVisible();
+    await expect(addBtn01Tall).toHaveAttribute('data-empty-h', '2');
+
+    // Click '+' on the 1x2 empty area -> adds a fresh blank 1x1 panel at (0, 1), focuses its input,
+    // and leaves a single '+' at (0, 2)
+    await addBtn01Tall.click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(11);
+    const addedAt01 = await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('#grid-stack-container > .grid-stack-item'));
+      const item = items.find((el) => el.gridstackNode && el.gridstackNode.x === 0 && el.gridstackNode.y === 1);
+      if (!item) return null;
+      const idx = parseInt(item.getAttribute('data-slot-index'), 10);
+      const input = document.getElementById(`handle-input-${idx}`);
+      return {
+        slotIndex: idx,
+        x: item.gridstackNode.x,
+        y: item.gridstackNode.y,
+        w: item.gridstackNode.w,
+        h: item.gridstackNode.h,
+        inputVal: input ? input.value : null,
+        isFocused: Boolean(input && document.activeElement === input)
+      };
+    });
+    expect(addedAt01).toMatchObject({
+      x: 0,
+      y: 1,
+      w: 1,
+      h: 1,
+      inputVal: '',
+      isFocused: true
+    });
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(1);
+    await expect(addBtn02).toBeVisible();
+
+    // Reload and verify the 11-card layout + remaining '+' at (0, 2) persist cleanly
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(11);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(1);
+    await expect(page.locator('.grid-empty-slot-btn[data-empty-x="0"][data-empty-y="2"]')).toBeVisible();
+
+    // Click the remaining '+' at (0, 2) -> fills the 12th panel and removes all '+' buttons
+    await page.locator('.grid-empty-slot-btn[data-empty-x="0"][data-empty-y="2"]').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(12);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(0);
+
+    // Blur focused input, then test Cmd/Ctrl+Z Undo and Cmd/Ctrl+Shift+Z Redo
+    await page.evaluate(() => {
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    });
+    const undoShortcut = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+    const redoShortcut = process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z';
+
+    await page.keyboard.press(undoShortcut);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(11);
+    await expect(page.locator('.grid-empty-slot-btn[data-empty-x="0"][data-empty-y="2"]')).toBeVisible();
+
+    await page.keyboard.press(redoShortcut);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(12);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(0);
+
+    // Restore 2x2 cleanly
+    await selectGridLayout(page, '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+    await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(0);
+  });
 });
 
 

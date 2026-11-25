@@ -1,13 +1,23 @@
-const { MAX_SLOTS } = require('../core/constants');
+const { MAX_SLOTS, DEFAULT_SLOT_MUTED } = require('../core/constants');
 const { showToast } = require('../core/utils');
-const { getSavedGridLayout, saveGridLayout } = require('../core/storage');
+const {
+  getSavedGridLayout,
+  saveGridLayout,
+  saveHandles,
+  saveMutedSlots
+} = require('../core/storage');
 const {
   updateSlotSizeUI,
+  updateSlotMuteUI,
   slotHasContent,
   syncAppUnreadBadge,
-  archiveSlotScrapedData
+  archiveSlotScrapedData,
+  resetSlotForNewTarget
 } = require('./slot');
 const { t } = require('../core/i18n');
+const { renderMantineGridEmptySlots } = require('./dist/mantine-shell');
+
+const gridEmptySlotHandlers = new WeakMap();
 
 function calculateCellHeight(rows) {
   let bannerOffset = 0;
@@ -440,7 +450,158 @@ function createHorizontalSwapEngineClass(BaseEngine) {
   };
 }
 
-function syncGridSlotsState(grid, slots, { rows } = {}) {
+  function configureGridEmptySlots(grid, onAddSlot) {
+    if (!grid || typeof grid !== 'object') return;
+    if (typeof onAddSlot === 'function') {
+      gridEmptySlotHandlers.set(grid, onAddSlot);
+    } else {
+      gridEmptySlotHandlers.delete(grid);
+    }
+  }
+
+  /**
+   * Computes contiguous vertical empty segments within the configured [0, cols) x [0, rows)
+   * grid area. Because GridStack runs with `float: false` (top-gravity packing), each
+   * contiguous vertical empty strip in a column maps cleanly to a single addable region whose
+   * top cell (x, y) is the exact target where a newly added 1x1 panel will settle.
+   */
+  function computeEmptyGridRegions(nodes, rows, cols) {
+    const safeRows = clampGridDim(rows, 2);
+    const safeCols = clampGridDim(cols, 2);
+    const occupied = Array.from({ length: safeRows }, () => Array(safeCols).fill(false));
+
+    if (Array.isArray(nodes)) {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (!n) continue;
+        const nx = Number(n.x) || 0;
+        const ny = Number(n.y) || 0;
+        const nw = Math.max(1, Number(n.w) || 1);
+        const nh = Math.max(1, Number(n.h) || 1);
+        const xStart = Math.max(0, nx);
+        const xEnd = Math.min(safeCols, nx + nw);
+        const yStart = Math.max(0, ny);
+        const yEnd = Math.min(safeRows, ny + nh);
+        for (let y = yStart; y < yEnd; y++) {
+          for (let x = xStart; x < xEnd; x++) {
+            occupied[y][x] = true;
+          }
+        }
+      }
+    }
+
+    const regions = [];
+    for (let x = 0; x < safeCols; x++) {
+      let y = 0;
+      while (y < safeRows) {
+        if (occupied[y][x]) {
+          y += 1;
+          continue;
+        }
+        const startY = y;
+        while (y < safeRows && !occupied[y][x]) {
+          y += 1;
+        }
+        regions.push({ x, y: startY, w: 1, h: y - startY });
+      }
+    }
+    return regions;
+  }
+
+  function findAvailableSlotIndex(slots, maxCount) {
+    if (!Array.isArray(slots)) return -1;
+    const limit = Math.min(slots.length, Math.max(0, maxCount || 0));
+    for (let i = 0; i < limit; i++) {
+      const s = slots[i];
+      if (s && s.element && !s.element.parentElement && !slotHasContent(s)) {
+        return i;
+      }
+    }
+    for (let i = 0; i < limit; i++) {
+      const s = slots[i];
+      if (
+        s &&
+        s.element &&
+        !s.element.parentElement &&
+        (!Array.isArray(s.loadedPosts) || s.loadedPosts.length === 0)
+      ) {
+        return i;
+      }
+    }
+    for (let i = 0; i < limit; i++) {
+      const s = slots[i];
+      if (s && s.element && !s.element.parentElement) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function ensureEmptySlotsLayer(gridContainer) {
+    if (!gridContainer || typeof document === 'undefined') return null;
+    let layer = null;
+    for (let i = 0; i < gridContainer.children.length; i++) {
+      const child = gridContainer.children[i];
+      if (child && child.classList && child.classList.contains('grid-empty-slots-layer')) {
+        layer = child;
+        break;
+      }
+    }
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'grid-empty-slots-layer';
+      layer.id = 'grid-empty-slots-layer';
+      gridContainer.prepend(layer);
+    }
+    return layer;
+  }
+
+  function syncEmptyGridSlots(grid, slots, { rows, cols } = {}) {
+    if (!grid || !grid.el || typeof document === 'undefined') return [];
+    const layer = ensureEmptySlotsLayer(grid.el);
+    if (!layer) return [];
+
+    if (!Number.isFinite(rows) || !Number.isFinite(cols)) {
+      renderMantineGridEmptySlots(layer, { regions: [] });
+      return [];
+    }
+
+    const safeRows = clampGridDim(rows, 2);
+    const safeCols = clampGridDim(cols, 2);
+    const totalSlots = safeRows * safeCols;
+    const availableSlotIndex = findAvailableSlotIndex(slots, totalSlots);
+
+    if (availableSlotIndex < 0) {
+      renderMantineGridEmptySlots(layer, { regions: [] });
+      return [];
+    }
+
+    const attachedNodes = [];
+    if (typeof grid.getGridItems === 'function') {
+      grid.getGridItems().forEach((el) => {
+        if (el && el.gridstackNode) {
+          attachedNodes.push(el.gridstackNode);
+        }
+      });
+    } else if (Array.isArray(slots)) {
+      slots.forEach((s) => {
+        if (s && s.element && s.element.parentElement && s.element.gridstackNode) {
+          attachedNodes.push(s.element.gridstackNode);
+        }
+      });
+    }
+
+    const regions = computeEmptyGridRegions(attachedNodes, safeRows, safeCols);
+    const onAdd = gridEmptySlotHandlers.get(grid) || null;
+    renderMantineGridEmptySlots(layer, {
+      regions,
+      addLabel: t('grid.addSlotTitle'),
+      onAdd
+    });
+    return regions;
+  }
+
+  function syncGridSlotsState(grid, slots, { rows, cols } = {}) {
   if (!Array.isArray(slots)) return;
   const attachedSlots = slots.filter(s => s && s.element && s.element.parentElement);
   const canClose = attachedSlots.length > 1;
@@ -460,6 +621,113 @@ function syncGridSlotsState(grid, slots, { rows } = {}) {
       slot.btnClose.style.display = isAttached && canClose ? 'flex' : 'none';
     }
   });
+
+    syncEmptyGridSlots(grid, slots, { rows, cols });
+  }
+
+  function addSlotToGrid({
+    grid,
+    gridContainer,
+    slots,
+    x,
+    y,
+    rows,
+    cols,
+    focusInput = true
+  }) {
+    const container = gridContainer || (grid && grid.el);
+    if (!grid || !container || !Array.isArray(slots)) {
+      return null;
+    }
+
+    const safeRows = clampGridDim(rows, 2);
+    const safeCols = clampGridDim(cols, 2);
+    const targetX = Number(x);
+    const targetY = Number(y);
+    if (
+      !Number.isInteger(targetX) ||
+      !Number.isInteger(targetY) ||
+      targetX < 0 ||
+      targetX >= safeCols ||
+      targetY < 0 ||
+      targetY >= safeRows
+    ) {
+      return null;
+    }
+
+    const totalSlots = safeRows * safeCols;
+    const slotIndex = findAvailableSlotIndex(slots, totalSlots);
+    if (slotIndex < 0) {
+      return null;
+    }
+
+    const attachedItems = typeof grid.getGridItems === 'function' ? grid.getGridItems() : [];
+    const isOccupied = attachedItems.some((el) => {
+      const n = el && el.gridstackNode;
+      if (!n) return false;
+      const nx = Number(n.x) || 0;
+      const ny = Number(n.y) || 0;
+      const nw = Math.max(1, Number(n.w) || 1);
+      const nh = Math.max(1, Number(n.h) || 1);
+      return targetX >= nx && targetX < nx + nw && targetY >= ny && targetY < ny + nh;
+    });
+    if (isOccupied) {
+      return null;
+    }
+
+    const slot = slots[slotIndex];
+    if (!slot || !slot.element) {
+      return null;
+    }
+
+    resetColumnHoverEffect(slots);
+
+    // Archive any previous scraped history into SQLite and reset slot as a fresh blank panel
+    archiveSlotScrapedData(slot);
+    resetSlotForNewTarget(slot, '', slots);
+    slot.isMuted = DEFAULT_SLOT_MUTED;
+    updateSlotMuteUI(slot);
+    saveHandles(slots);
+    saveMutedSlots(slots);
+
+    const el = slot.element;
+    el.classList.remove('is-grid-overflow', 'is-hover-expanded', 'is-hover-squeezed');
+    el.style.top = '';
+    el.style.height = '';
+    el.style.left = '';
+    el.style.width = '';
+    if (slot.card) {
+      slot.card.classList.remove('is-header-hidden', 'slot-card-conflict', 'slot-card-notify-focus');
+    }
+    if (el.gridstackNode) {
+      delete el.gridstackNode;
+    }
+
+    el.setAttribute('gs-x', String(targetX));
+    el.setAttribute('gs-y', String(targetY));
+    el.setAttribute('gs-w', '1');
+    el.setAttribute('gs-h', '1');
+
+    container.appendChild(el);
+    grid.makeWidget(el, {
+      x: targetX,
+      y: targetY,
+      w: 1,
+      h: 1,
+      autoPosition: false,
+      id: `slot-${slot.index}`
+    });
+    updateSlotSizeUI(slot, 1, 1);
+
+    saveGridLayout(grid);
+    syncAppUnreadBadge(slots);
+    syncGridSlotsState(grid, slots, { rows: safeRows, cols: safeCols });
+
+    if (focusInput && slot.handleInput && typeof slot.handleInput.focus === 'function') {
+      slot.handleInput.focus();
+    }
+
+    return slot;
 }
 
 function removeSlotFromGrid({ grid, slot, slots, rows, cols }) {
@@ -647,7 +915,11 @@ function applyGridLayout({
     // 2. Purge any orphan elements that do not belong to active slots
     const activeElements = new Set(activePlans.map(p => p.slot.element));
     Array.from(gridContainer.children).forEach(child => {
-      if (!activeElements.has(child) && !child.classList.contains('grid-stack-placeholder')) {
+        if (
+          !activeElements.has(child) &&
+          !child.classList.contains('grid-stack-placeholder') &&
+          !child.classList.contains('grid-empty-slots-layer')
+        ) {
         try {
           grid.removeWidget(child, true, false);
         } catch (e) {}
@@ -1235,6 +1507,7 @@ function initColumnHoverEffect({
   if (grid) {
     grid.on('dragstart resizestart', () => {
       hoverEffectState.isInteractingWithGrid = true;
+      gridContainer.classList.add('is-grid-interacting');
       resetColumnHoverEffect(slots);
       if (typeof onInteractionStart === 'function') {
         onInteractionStart();
@@ -1242,6 +1515,7 @@ function initColumnHoverEffect({
     });
     grid.on('dragstop resizestop', () => {
       hoverEffectState.isInteractingWithGrid = false;
+      gridContainer.classList.remove('is-grid-interacting');
       saveGridLayout(grid);
       syncGridSlotsState(grid, slots, getGridDimensions ? getGridDimensions() : {});
       if (typeof onInteractionEnd === 'function') {
@@ -1261,7 +1535,12 @@ module.exports = {
   computeAdjacentHorizontalBlockSwap,
   tryHorizontalBlockSwap,
   createHorizontalSwapEngineClass,
+  configureGridEmptySlots,
+  computeEmptyGridRegions,
+  findAvailableSlotIndex,
+  syncEmptyGridSlots,
   syncGridSlotsState,
+  addSlotToGrid,
   removeSlotFromGrid,
   applyGridLayout,
   requestSlotResize,

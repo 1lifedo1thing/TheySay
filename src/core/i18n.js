@@ -310,6 +310,7 @@ const MESSAGES = {
     'attachment.file': 'Attachment',
 
     // Grid Resize & Collisions
+    'grid.addSlotTitle': 'Add new panel',
     'grid.notEnoughCols': 'Current grid only has {currentCols} columns and cannot fit a {targetW}-column card. Switch to a wider grid layout at the top first.',
     'grid.notEnoughRows': 'Current grid only has {currentRows} rows and cannot fit a {targetH}-row card. Switch to a taller grid layout at the top first.',
     'grid.conflictCardFallback': 'Card',
@@ -752,6 +753,7 @@ const MESSAGES = {
     'attachment.file': '附件',
 
     // Grid Resize & Collisions
+    'grid.addSlotTitle': '添加新板块',
     'grid.notEnoughCols': '当前网格仅有 {currentCols} 列，无法容纳 {targetW} 列宽度的卡片。请先在顶部切换更大列数的网格布局。',
     'grid.notEnoughRows': '当前网格仅有 {currentRows} 行，无法容纳 {targetH} 行高度的卡片。请先在顶部切换更多行的网格布局。',
     'grid.conflictCardFallback': '卡片',

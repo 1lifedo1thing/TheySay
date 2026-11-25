@@ -58,7 +58,9 @@ const {
   createLayoutHistory,
   disableGridDomSorting,
   createHorizontalSwapEngineClass,
+  configureGridEmptySlots,
   syncGridSlotsState,
+  addSlotToGrid,
   removeSlotFromGrid,
   applyGridLayout,
   requestSlotResize,
@@ -194,6 +196,9 @@ function refreshLocalizedAppUI(lang) {
   refreshUpdateStatusUI();
   localizeSlotsUI(slots);
   refreshSlotsContent(slots);
+  if (grid) {
+    syncGridSlotsState(grid, slots, { rows: currentRows, cols: currentCols });
+  }
   refreshOnboardingLocaleUI();
 }
 
@@ -223,6 +228,23 @@ function handleSlotClose(slot) {
     cols: currentCols
   });
   if (removed) {
+    recordCurrentGridLayout();
+  }
+}
+
+function handleAddSlotAt(region) {
+  if (!region || !grid) return;
+  const added = addSlotToGrid({
+    grid,
+    gridContainer,
+    slots,
+    x: region.x,
+    y: region.y,
+    rows: currentRows,
+    cols: currentCols,
+    focusInput: true
+  });
+  if (added) {
     recordCurrentGridLayout();
   }
 }
@@ -640,6 +662,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   // Keep slot feeds' scroll positions intact across drag/resize (see grid.js)
   disableGridDomSorting(grid);
+  configureGridEmptySlots(grid, handleAddSlotAt);
 
   // Apply layout
   applyGridLayout({

@@ -19,6 +19,7 @@ import { TwitterFallbackCard } from './components/popup/TwitterFallbackCard';
 import { DiscordPopupCard } from './components/popup/DiscordPopupCard';
 import { ThreadsPopupCard } from './components/popup/ThreadsPopupCard';
 import { OnboardingPopoverContent } from './components/onboarding/OnboardingPopoverContent';
+import { GridEmptySlotsOverlay } from './components/grid/GridEmptySlotsOverlay';
 
 let isMounted = false;
 let timelineRenderSeq = 0;
@@ -229,6 +230,10 @@ export function renderMantineThreadsPopupCard(containerEl, props) {
 
 export function renderMantineOnboardingContent(containerEl, props) {
   renderInSubtreeRoot(containerEl, <OnboardingPopoverContent {...props} />);
+}
+
+export function renderMantineGridEmptySlots(containerEl, props) {
+  renderInSubtreeRoot(containerEl, <GridEmptySlotsOverlay {...props} />);
 }
 
 export function syncMantineGridPreset(preset) {
