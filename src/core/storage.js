@@ -44,6 +44,8 @@ const {
   STORAGE_FILTER_KEYWORDS_KEY,
   STORAGE_AUTO_CHECK_UPDATES_KEY,
   STORAGE_ONBOARDING_COMPLETED_KEY,
+  STORAGE_UNDO_SHORTCUT_KEY,
+  STORAGE_REDO_SHORTCUT_KEY,
   DEFAULT_TWITTER_INTERVAL_MINUTES,
   DEFAULT_DISCORD_INTERVAL_MINUTES,
   DEFAULT_THREADS_INTERVAL_MINUTES,
@@ -51,6 +53,8 @@ const {
   DEFAULT_DISCORD_SOUND_ENABLED,
   DEFAULT_APP_BADGE_ENABLED,
   DEFAULT_AUTO_CHECK_UPDATES,
+  DEFAULT_UNDO_SHORTCUT,
+  DEFAULT_REDO_SHORTCUT,
   DEFAULT_SLOT_MUTED,
   DEFAULT_TICKER_FG_COLOR,
   DEFAULT_TICKER_BG_COLOR,
@@ -65,6 +69,7 @@ const {
 const { detectSourceType, getCanonicalTargetKey } = require('./source');
 const { getPostKey, getPostTimestamp, parseFilterKeywordsInput } = require('./post');
 const { getCurrentLanguage, setActiveLanguageOverride } = require('./i18n');
+const { normalizeShortcut } = require('./shortcuts');
 const { colord } = require('colord');
 
 let fallbackMemoryDb = null;
@@ -1055,6 +1060,50 @@ function saveFilterKeywords(keywords) {
   }
 }
 
+function getLayoutUndoShortcut() {
+  const raw = readStorage(STORAGE_UNDO_SHORTCUT_KEY);
+  return normalizeShortcut(raw, DEFAULT_UNDO_SHORTCUT);
+}
+
+function getLayoutRedoShortcut() {
+  const raw = readStorage(STORAGE_REDO_SHORTCUT_KEY);
+  return normalizeShortcut(raw, DEFAULT_REDO_SHORTCUT);
+}
+
+function syncLayoutShortcutsToMain(
+  undoShortcut = getLayoutUndoShortcut(),
+  redoShortcut = getLayoutRedoShortcut()
+) {
+  try {
+    const { ipcRenderer } = require('electron');
+    if (ipcRenderer) {
+      const payload = {
+        undoShortcut: normalizeShortcut(undoShortcut, DEFAULT_UNDO_SHORTCUT),
+        redoShortcut: normalizeShortcut(redoShortcut, DEFAULT_REDO_SHORTCUT)
+      };
+      if (typeof ipcRenderer.sendSync === 'function') {
+        ipcRenderer.sendSync('set-layout-shortcuts', payload);
+      } else if (typeof ipcRenderer.send === 'function') {
+        ipcRenderer.send('set-layout-shortcuts', payload);
+      }
+    }
+  } catch (_) {}
+}
+
+function saveLayoutUndoShortcut(shortcut) {
+  const normalized = normalizeShortcut(shortcut, DEFAULT_UNDO_SHORTCUT);
+  writeStorage(STORAGE_UNDO_SHORTCUT_KEY, normalized);
+  syncLayoutShortcutsToMain(normalized, getLayoutRedoShortcut());
+  return normalized;
+}
+
+function saveLayoutRedoShortcut(shortcut) {
+  const normalized = normalizeShortcut(shortcut, DEFAULT_REDO_SHORTCUT);
+  writeStorage(STORAGE_REDO_SHORTCUT_KEY, normalized);
+  syncLayoutShortcutsToMain(getLayoutUndoShortcut(), normalized);
+  return normalized;
+}
+
 function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = {}) {
   if (grid) {
     saveGridLayout(grid);
@@ -1218,6 +1267,12 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
     appBadgeEnabled: settingsOverrides.appBadgeEnabled !== undefined
       ? settingsOverrides.appBadgeEnabled
       : getAppBadgeEnabled(),
+    layoutUndoShortcut: settingsOverrides.layoutUndoShortcut !== undefined
+      ? normalizeShortcut(settingsOverrides.layoutUndoShortcut, DEFAULT_UNDO_SHORTCUT)
+      : getLayoutUndoShortcut(),
+    layoutRedoShortcut: settingsOverrides.layoutRedoShortcut !== undefined
+      ? normalizeShortcut(settingsOverrides.layoutRedoShortcut, DEFAULT_REDO_SHORTCUT)
+      : getLayoutRedoShortcut(),
     autoCheckUpdates: settingsOverrides.autoCheckUpdates !== undefined
       ? settingsOverrides.autoCheckUpdates
       : getAutoCheckUpdates(),
@@ -1319,6 +1374,11 @@ module.exports = {
   saveDiscordSoundEnabled,
   getAppBadgeEnabled,
   saveAppBadgeEnabled,
+  getLayoutUndoShortcut,
+  saveLayoutUndoShortcut,
+  getLayoutRedoShortcut,
+  saveLayoutRedoShortcut,
+  syncLayoutShortcutsToMain,
   getAutoCheckUpdates,
   saveAutoCheckUpdates,
   getOnboardingCompleted,

@@ -18,6 +18,11 @@ const {
   saveFilterKeywords,
   saveDiscordSoundEnabled,
   saveAppBadgeEnabled,
+  getLayoutUndoShortcut,
+  saveLayoutUndoShortcut,
+  getLayoutRedoShortcut,
+  saveLayoutRedoShortcut,
+  syncLayoutShortcutsToMain,
   saveAutoCheckUpdates,
   saveHeaderBgColor,
   saveChatBgColor,
@@ -87,8 +92,17 @@ const {
   getFormSettingsOverrides,
   refreshTickerStatsLabel,
   refreshUpdateStatusUI,
+  refreshShortcutsLocaleUI,
   startAutoUpdateCheck
 } = require('./src/ui/settings');
+const {
+  DEFAULT_UNDO_SHORTCUT,
+  DEFAULT_REDO_SHORTCUT,
+  normalizeShortcut,
+  areShortcutsEquivalent,
+  matchesShortcut,
+  isNativeEditRedoEvent
+} = require('./src/core/shortcuts');
 const { applyDiscordSoundSetting } = require('./src/data/discord');
 const { initNotifications } = require('./src/ui/notification');
 const { initTickers, applyTickerColors } = require('./src/core/ticker');
@@ -178,10 +192,10 @@ function applyHistorySnapshot(snapshot) {
   return true;
 }
 
-function triggerLayoutHistoryStep(direction, { fromMainIpc = false } = {}) {
+function triggerLayoutHistoryStep(direction, { fromMainIpc = false, isNativeEdit = false } = {}) {
   const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
   if (isEditableElement(activeEl)) {
-    if (fromMainIpc && ipcRenderer) {
+    if (fromMainIpc && isNativeEdit && ipcRenderer) {
       ipcRenderer.send(direction === 'redo' ? 'edit-redo' : 'edit-undo');
     }
     return false;
@@ -206,6 +220,7 @@ function refreshLocalizedAppUI(lang) {
   refreshAuthLocaleUI();
   refreshTickerStatsLabel();
   refreshUpdateStatusUI();
+  refreshShortcutsLocaleUI();
   localizeSlotsUI(slots);
   refreshSlotsContent(slots);
   if (grid) {
@@ -359,6 +374,25 @@ async function handleImportProfile() {
     }
     if (typeof settings.appBadgeEnabled === 'boolean') {
       saveAppBadgeEnabled(settings.appBadgeEnabled);
+    }
+    const nextUndoShortcut =
+      typeof settings.layoutUndoShortcut === 'string' && settings.layoutUndoShortcut.trim()
+        ? normalizeShortcut(settings.layoutUndoShortcut, getLayoutUndoShortcut())
+        : null;
+    const nextRedoShortcut =
+      typeof settings.layoutRedoShortcut === 'string' && settings.layoutRedoShortcut.trim()
+        ? normalizeShortcut(settings.layoutRedoShortcut, getLayoutRedoShortcut())
+        : null;
+    if (nextUndoShortcut || nextRedoShortcut) {
+      const resolvedUndo = nextUndoShortcut || getLayoutUndoShortcut();
+      const resolvedRedo = nextRedoShortcut || getLayoutRedoShortcut();
+      if (!areShortcutsEquivalent(resolvedUndo, resolvedRedo)) {
+        if (nextUndoShortcut) saveLayoutUndoShortcut(resolvedUndo);
+        if (nextRedoShortcut) saveLayoutRedoShortcut(resolvedRedo);
+      } else {
+        saveLayoutUndoShortcut(DEFAULT_UNDO_SHORTCUT);
+        saveLayoutRedoShortcut(DEFAULT_REDO_SHORTCUT);
+      }
     }
     if (typeof settings.autoCheckUpdates === 'boolean') {
       saveAutoCheckUpdates(settings.autoCheckUpdates);
@@ -598,6 +632,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (ipcRenderer) {
     ipcRenderer.send('set-language', { lang: initialLang, persist: false });
   }
+  syncLayoutShortcutsToMain();
 
   initTheme(btnThemeToggle);
   initPostPopup();
@@ -784,29 +819,40 @@ window.addEventListener('DOMContentLoaded', () => {
     ipcRenderer.on('global-escape', () => {
       closeMantineLayoutPicker();
     });
-    ipcRenderer.on('layout-undo', () => {
-      triggerLayoutHistoryStep('undo', { fromMainIpc: true });
+    ipcRenderer.on('layout-undo', (event, meta) => {
+      triggerLayoutHistoryStep('undo', {
+        fromMainIpc: true,
+        isNativeEdit: Boolean(meta && meta.isNativeEditUndo)
+      });
     });
-    ipcRenderer.on('layout-redo', () => {
-      triggerLayoutHistoryStep('redo', { fromMainIpc: true });
+    ipcRenderer.on('layout-redo', (event, meta) => {
+      triggerLayoutHistoryStep('redo', {
+        fromMainIpc: true,
+        isNativeEdit: Boolean(meta && meta.isNativeEditRedo)
+      });
     });
   }
 
   // Fallback keyboard listener when keydown reaches renderer directly (e.g. synthetic events)
   window.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented || e.altKey) return;
-    const key = String(e.key || '').toLowerCase();
-    const isMac = typeof process !== 'undefined' && process.platform === 'darwin';
-    const hasPrimaryMod = isMac ? (e.metaKey && !e.ctrlKey) : (e.ctrlKey && !e.metaKey);
+    if (e.defaultPrevented) return;
+    if (isEditableElement(document.activeElement)) return;
+    if (isSettingsModalOpen() || isPostPopupOpen()) return;
 
-    if (hasPrimaryMod && key === 'z') {
-      if (isEditableElement(document.activeElement)) return;
-      if (isSettingsModalOpen() || isPostPopupOpen()) return;
+    const platform = typeof process !== 'undefined' ? process.platform : undefined;
+    const undoShortcut = getLayoutUndoShortcut();
+    const redoShortcut = getLayoutRedoShortcut();
+
+    if (matchesShortcut(undoShortcut, e, platform)) {
       e.preventDefault();
-      triggerLayoutHistoryStep(e.shiftKey ? 'redo' : 'undo', { fromMainIpc: false });
-    } else if (!isMac && hasPrimaryMod && !e.shiftKey && key === 'y') {
-      if (isEditableElement(document.activeElement)) return;
-      if (isSettingsModalOpen() || isPostPopupOpen()) return;
+      triggerLayoutHistoryStep('undo', { fromMainIpc: false });
+    } else if (
+      matchesShortcut(redoShortcut, e, platform) ||
+      (platform !== 'darwin' &&
+        redoShortcut === DEFAULT_REDO_SHORTCUT &&
+        !matchesShortcut(undoShortcut, e, platform) &&
+        isNativeEditRedoEvent(e, platform))
+    ) {
       e.preventDefault();
       triggerLayoutHistoryStep('redo', { fromMainIpc: false });
     }

@@ -16,6 +16,9 @@ const {
   DEFAULT_BUBBLE_BG_COLOR,
   DEFAULT_DARK_BUBBLE_BG_COLOR,
   THEME_PALETTE_PRESETS,
+  DEFAULT_AUTO_CHECK_UPDATES,
+  DEFAULT_UNDO_SHORTCUT,
+  DEFAULT_REDO_SHORTCUT
 } = require('../core/constants');
 const {
   getTwitterIntervalMinutes,
@@ -32,6 +35,10 @@ const {
   saveDiscordSoundEnabled,
   getAppBadgeEnabled,
   saveAppBadgeEnabled,
+  getLayoutUndoShortcut,
+  saveLayoutUndoShortcut,
+  getLayoutRedoShortcut,
+  saveLayoutRedoShortcut,
   getAutoCheckUpdates,
   saveAutoCheckUpdates,
   getTickerFgColor,
@@ -149,6 +156,7 @@ let isInitialized = false;
 let onLanguageChangeCallback = null;
 let onSaveCallback = null;
 let autoUpdateIntervalId = null;
+let suppressEscCloseUntil = 0;
 let currentUpdateState = {
   state: 'idle',
   currentVersion: '1.1.0',
@@ -156,6 +164,52 @@ let currentUpdateState = {
   updateAvailable: false,
   progress: 0
 };
+
+function setMainShortcutRecording(active) {
+  try {
+    if (ipcRenderer) {
+      if (typeof ipcRenderer.sendSync === 'function') {
+        ipcRenderer.sendSync('set-shortcut-recording', Boolean(active));
+      } else if (typeof ipcRenderer.send === 'function') {
+        ipcRenderer.send('set-shortcut-recording', Boolean(active));
+      }
+    }
+  } catch (_) {}
+}
+
+function isShortcutRecording() {
+  return Boolean(
+    typeof window !== 'undefined' &&
+      window.__THEYSAY_SHORTCUTS_BRIDGE &&
+      window.__THEYSAY_SHORTCUTS_BRIDGE.isRecording()
+  );
+}
+
+function cancelShortcutRecording({ suppressEsc = false } = {}) {
+  if (suppressEsc) {
+    suppressEscCloseUntil = Date.now() + 200;
+  }
+  if (typeof window !== 'undefined' && window.__THEYSAY_SHORTCUTS_BRIDGE) {
+    window.__THEYSAY_SHORTCUTS_BRIDGE.cancelRecording();
+  }
+  setMainShortcutRecording(false);
+}
+
+function syncShortcutsControl(
+  undo = getLayoutUndoShortcut(),
+  redo = getLayoutRedoShortcut()
+) {
+  if (typeof window !== 'undefined' && window.__THEYSAY_SHORTCUTS_BRIDGE) {
+    window.__THEYSAY_SHORTCUTS_BRIDGE.setShortcuts({ undo, redo });
+    window.__THEYSAY_SHORTCUTS_BRIDGE.setRecordingLabel(t('settings.shortcutRecording'));
+  }
+}
+
+function refreshShortcutsLocaleUI() {
+  if (typeof window !== 'undefined' && window.__THEYSAY_SHORTCUTS_BRIDGE) {
+    window.__THEYSAY_SHORTCUTS_BRIDGE.setRecordingLabel(t('settings.shortcutRecording'));
+  }
+}
 
 function notifySaved() {
   if (typeof onSaveCallback === 'function') {
@@ -168,6 +222,8 @@ function notifySaved() {
       filterKeywords: getFilterKeywords(),
       discordSoundEnabled: getDiscordSoundEnabled(),
       appBadgeEnabled: getAppBadgeEnabled(),
+      layoutUndoShortcut: getLayoutUndoShortcut(),
+      layoutRedoShortcut: getLayoutRedoShortcut(),
       autoCheckUpdates: getAutoCheckUpdates(),
       headerBgColor: getHeaderBgColor(),
       chatBgColor: getChatBgColor(),
@@ -213,7 +269,27 @@ function populateSelectAndInput(selectEl, customWrapEl, customInputEl, currentVa
   customInputEl.value = currentVal;
 }
 
+function updateThemePaletteActiveUI() {
+  const mode = getEffectiveTheme();
+  const curChat = getChatBgColor(mode).toLowerCase();
+  const curBubble = getBubbleBgColor(mode).toLowerCase();
+  const curHeader = getHeaderBgColor(mode).toLowerCase();
   const presets = THEME_PALETTE_PRESETS[mode] || [];
+  const matched = presets.find(
+    (p) =>
+      p.chatBg.toLowerCase() === curChat &&
+      p.bubbleBg.toLowerCase() === curBubble &&
+      p.headerBg.toLowerCase() === curHeader
+  );
+  const matchedId = matched ? matched.id : null;
+  document.querySelectorAll('#setting-theme-palettes .theme-palette-card').forEach((btn) => {
+    const pid = btn.getAttribute('data-palette-id') || '';
+    const isActive = Boolean(matchedId && pid === matchedId);
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+}
+
 function updateHeaderPreviewUI(bgColor, { liveApply = false } = {}) {
   const mode = getEffectiveTheme();
   const fallback = mode === 'dark' ? DEFAULT_DARK_HEADER_BG_COLOR : DEFAULT_HEADER_BG_COLOR;
@@ -579,6 +655,7 @@ function loadCurrentSettings() {
   });
 
   syncFilterKeywordsControl(getFilterKeywords());
+  syncShortcutsControl(getLayoutUndoShortcut(), getLayoutRedoShortcut());
   syncAppearanceInputsForActiveMode({ liveApply: false });
   setTickerColorInputs(getTickerFgColor(), getTickerBgColor());
   refreshTickerStatsLabel();
@@ -600,6 +677,7 @@ function closeSettingsModal() {
   const overlay = getOverlay();
   if (!overlay) return;
 
+  cancelShortcutRecording();
   commitPendingFilterKeywordsInput({ triggerSave: true });
   overlay.classList.add('is-closed');
   const btnSettings = document.getElementById('btn-settings');
@@ -651,6 +729,12 @@ function getFormSettingsOverrides() {
     typeof window !== 'undefined' && window.__THEYSAY_FILTER_KEYWORDS_BRIDGE
       ? window.__THEYSAY_FILTER_KEYWORDS_BRIDGE.getKeywords()
       : getFilterKeywords();
+  const currentShortcuts =
+    typeof window !== 'undefined' && window.__THEYSAY_SHORTCUTS_BRIDGE
+      ? window.__THEYSAY_SHORTCUTS_BRIDGE.getShortcuts()
+      : { undo: getLayoutUndoShortcut(), redo: getLayoutRedoShortcut() };
+  overrides.layoutUndoShortcut = currentShortcuts.undo;
+  overrides.layoutRedoShortcut = currentShortcuts.redo;
   overrides.headerBgColor = readColorFromInputs(
     'setting-header-bg-color',
     'setting-header-bg-hex',
@@ -719,6 +803,27 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
       saveFilterKeywords(nextKeywords);
       notifySaved();
     };
+    window.__THEYSAY_ON_SHORTCUTS_CHANGE = ({ undo, redo } = {}) => {
+      const savedUndo = saveLayoutUndoShortcut(undo);
+      const savedRedo = saveLayoutRedoShortcut(redo);
+      syncShortcutsControl(savedUndo, savedRedo);
+      notifySaved();
+    };
+    window.__THEYSAY_ON_SHORTCUT_RECORDING_CHANGE = (active) => {
+      setMainShortcutRecording(Boolean(active));
+    };
+    window.__THEYSAY_ON_SHORTCUT_RECORDING_CANCEL = () => {
+      suppressEscCloseUntil = Date.now() + 200;
+    };
+    window.__THEYSAY_ON_SHORTCUT_ERROR = (reason) => {
+      if (reason === 'duplicate') {
+        showToast(t('settings.toastShortcutDuplicate'), 'warning', 2500);
+      } else if (reason === 'reserved') {
+        showToast(t('settings.toastShortcutReserved'), 'warning', 2500);
+      } else {
+        showToast(t('settings.toastShortcutNeedsModifier'), 'warning', 2500);
+      }
+    };
     window.__THEYSAY_ON_THEME_MODE_CHANGE = (nextPref) => {
       applyTheme(nextPref);
       // Defer one tick so React re-renders mode-specific swatches/palettes before marking active chips
@@ -740,6 +845,7 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
     });
   }
   syncFilterKeywordsControl(getFilterKeywords());
+  syncShortcutsControl(getLayoutUndoShortcut(), getLayoutRedoShortcut());
 
   const btnSettings = document.getElementById('btn-settings');
   const overlay = getOverlay();
@@ -1137,6 +1243,10 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
       saveFilterKeywords(DEFAULT_FILTER_KEYWORDS);
       syncFilterKeywordsControl(DEFAULT_FILTER_KEYWORDS);
 
+      cancelShortcutRecording();
+      saveLayoutUndoShortcut(DEFAULT_UNDO_SHORTCUT);
+      saveLayoutRedoShortcut(DEFAULT_REDO_SHORTCUT);
+      syncShortcutsControl(DEFAULT_UNDO_SHORTCUT, DEFAULT_REDO_SHORTCUT);
 
       resetAllAppearanceColors();
       const activeMode = getEffectiveTheme();
@@ -1151,6 +1261,7 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
       if (typeof onLanguageChangeCallback === 'function') {
         onLanguageChangeCallback(sysLang);
       }
+      refreshShortcutsLocaleUI();
       refreshTickerStatsLabel();
       refreshUpdateStatusUI();
       notifySaved();
@@ -1160,6 +1271,17 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
 
   const handleEscKey = (e) => {
     if (e.key === 'Escape' && isSettingsModalOpen()) {
+      if (isShortcutRecording()) {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelShortcutRecording({ suppressEsc: true });
+        return;
+      }
+      if (Date.now() < suppressEscCloseUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       closeSettingsModal();
@@ -1171,7 +1293,13 @@ function initSettings({ onSave, onExportProfile, onImportProfile, onLanguageChan
 
   if (ipcRenderer) {
     ipcRenderer.on('global-escape', () => {
-      if (isSettingsModalOpen()) closeSettingsModal();
+      if (!isSettingsModalOpen()) return;
+      if (isShortcutRecording()) {
+        cancelShortcutRecording({ suppressEsc: true });
+        return;
+      }
+      if (Date.now() < suppressEscCloseUntil) return;
+      closeSettingsModal();
     });
     ipcRenderer.on('update-status', (event, status) => {
       if (status && typeof status === 'object') {
@@ -1192,5 +1320,6 @@ module.exports = {
   getFormSettingsOverrides,
   refreshTickerStatsLabel,
   refreshUpdateStatusUI,
+  refreshShortcutsLocaleUI,
   startAutoUpdateCheck
 };

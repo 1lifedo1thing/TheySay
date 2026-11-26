@@ -22,6 +22,14 @@ const {
   applyDownloadedUpdate
 } = require('./src/core/updater');
 const { HistoryDatabase } = require('./src/core/history-db');
+const {
+  DEFAULT_UNDO_SHORTCUT,
+  DEFAULT_REDO_SHORTCUT,
+  normalizeShortcut,
+  matchesShortcut,
+  isNativeEditUndoEvent,
+  isNativeEditRedoEvent
+} = require('./src/core/shortcuts');
 const TICKER_DATA_PATH = path
   .join(__dirname, 'data', 'ticker-data.json')
   .replace('app.asar', 'app.asar.unpacked');
@@ -321,6 +329,9 @@ let loginWindow = null;
 let discordLoginWindow = null;
 let threadsLoginWindow = null;
 let currentAppBadgeCount = 0;
+let layoutUndoShortcut = DEFAULT_UNDO_SHORTCUT;
+let layoutRedoShortcut = DEFAULT_REDO_SHORTCUT;
+let isRecordingShortcut = false;
 const activeNotifications = new Set();
 
 const DISABLE_WEB_BADGING_SCRIPT = `
@@ -516,24 +527,38 @@ function createWindow() {
     }
   });
 
-  // Ensure Cmd+R / Ctrl+R reloads, Cmd/Ctrl+Z (+Shift/Y) triggers multi-step layout undo/redo,
-  // and Escape closes open popups across frames
+  // Ensure Cmd+R / Ctrl+R reloads, configured layout undo/redo shortcuts trigger multi-step
+  // layout undo/redo, and Escape closes open popups across frames.
+  mainWindow.webContents.on('did-start-loading', () => {
+    isRecordingShortcut = false;
+  });
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown') {
+      if (isRecordingShortcut) {
+        return;
+      }
       const key = String(input.key || '').toLowerCase();
-      const hasPrimaryMod = process.platform === 'darwin'
-        ? (input.meta && !input.control)
-        : (input.control && !input.meta);
 
-      if ((input.meta || input.control) && key === 'r') {
+      if ((input.meta || input.control) && !input.alt && !input.shift && key === 'r') {
         event.preventDefault();
         mainWindow.reload();
-      } else if (hasPrimaryMod && !input.alt && key === 'z') {
+      } else if (matchesShortcut(layoutUndoShortcut, input, process.platform)) {
         event.preventDefault();
-        mainWindow.webContents.send(input.shift ? 'layout-redo' : 'layout-undo');
-      } else if (process.platform !== 'darwin' && hasPrimaryMod && !input.alt && !input.shift && key === 'y') {
+        mainWindow.webContents.send('layout-undo', {
+          isNativeEditUndo: isNativeEditUndoEvent(input, process.platform)
+        });
+      } else if (
+        matchesShortcut(layoutRedoShortcut, input, process.platform) ||
+        (process.platform !== 'darwin' &&
+          layoutRedoShortcut === DEFAULT_REDO_SHORTCUT &&
+          !matchesShortcut(layoutUndoShortcut, input, process.platform) &&
+          isNativeEditRedoEvent(input, process.platform))
+      ) {
         event.preventDefault();
-        mainWindow.webContents.send('layout-redo');
+        mainWindow.webContents.send('layout-redo', {
+          isNativeEditRedo: isNativeEditRedoEvent(input, process.platform)
+        });
       } else if (input.key === 'Escape') {
         mainWindow.webContents.send('global-escape');
       }
@@ -541,6 +566,7 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    isRecordingShortcut = false;
     mainWindow = null;
   });
 }
@@ -1832,6 +1858,22 @@ ipcMain.on('edit-redo', (event) => {
   }
 });
 
+ipcMain.on('set-layout-shortcuts', (event, payload) => {
+  if (payload && typeof payload === 'object') {
+    layoutUndoShortcut = normalizeShortcut(payload.undoShortcut, DEFAULT_UNDO_SHORTCUT);
+    layoutRedoShortcut = normalizeShortcut(payload.redoShortcut, DEFAULT_REDO_SHORTCUT);
+  }
+  event.returnValue = {
+    ok: true,
+    undoShortcut: layoutUndoShortcut,
+    redoShortcut: layoutRedoShortcut
+  };
+});
+
+ipcMain.on('set-shortcut-recording', (event, active) => {
+  isRecordingShortcut = Boolean(active);
+  event.returnValue = { ok: true, active: isRecordingShortcut };
+});
 
 ipcMain.on('get-native-theme-sync', (event) => {
   event.returnValue = {

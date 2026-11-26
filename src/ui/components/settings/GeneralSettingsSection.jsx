@@ -10,6 +10,7 @@ import {
 } from '@tabler/icons-react';
 import { DiscordSvgIcon } from '../icons/PlatformIcons';
 import { parseFilterKeywordsInput } from '../../../core/post';
+import { LayoutShortcutsRow } from './LayoutShortcutsRow';
 
 const SELECT_CLASS_NAMES = {
   root: 'mantine-settings-select-root',
@@ -117,40 +118,41 @@ const TOGGLE_SELECT_ROWS = [
       { value: 'true', i18n: 'settings.optionOnDefault', label: '开启 (默认)' },
       { value: 'false', i18n: 'settings.optionOff', label: '关闭' }
     ]
-  },
-  {
-    id: 'setting-auto-update',
-    tipI18n: 'settings.autoUpdateTip',
-    tipText: '启动时自动从 GitHub Releases 检测新版本，支持全平台一键下载更新',
-    iconColor: 'cyan',
-    iconClass: 'auto-update',
-    iconContent: <IconRefresh size={14} stroke={2.2} />,
-    titleI18n: 'settings.autoUpdateTitle',
-    titleText: '版本自动更新',
-    subtitleId: 'setting-update-status-text',
-    subtitleText: '当前 v1.1.0 · GitHub Releases',
-    options: [
-      { value: 'true', i18n: 'settings.optionOnDefault', label: '开启 (默认)' },
-      { value: 'false', i18n: 'settings.optionOff', label: '关闭' }
-    ],
-    extraControl: (
-      <Button
-        type="button"
-        id="btn-check-updates"
-        variant="light"
-        color="brand"
-        size="compact-xs"
-        radius="md"
-        className="btn-tool btn-check-updates"
-        data-i18n-title="settings.checkUpdatesTitle"
-        title="从 GitHub Releases 检查是否有新版本"
-        leftSection={<IconRefresh size={12} stroke={2.2} />}
-      >
-        检查更新
-      </Button>
-    )
   }
 ];
+
+const AUTO_UPDATE_ROW = {
+  id: 'setting-auto-update',
+  tipI18n: 'settings.autoUpdateTip',
+  tipText: '启动时自动从 GitHub Releases 检测新版本，支持全平台一键下载更新',
+  iconColor: 'cyan',
+  iconClass: 'auto-update',
+  iconContent: <IconRefresh size={14} stroke={2.2} />,
+  titleI18n: 'settings.autoUpdateTitle',
+  titleText: '版本自动更新',
+  subtitleId: 'setting-update-status-text',
+  subtitleText: '当前 v1.1.0 · GitHub Releases',
+  options: [
+    { value: 'true', i18n: 'settings.optionOnDefault', label: '开启 (默认)' },
+    { value: 'false', i18n: 'settings.optionOff', label: '关闭' }
+  ],
+  extraControl: (
+    <Button
+      type="button"
+      id="btn-check-updates"
+      variant="light"
+      color="brand"
+      size="compact-xs"
+      radius="md"
+      className="btn-tool btn-check-updates"
+      data-i18n-title="settings.checkUpdatesTitle"
+      title="从 GitHub Releases 检查是否有新版本"
+      leftSection={<IconRefresh size={12} stroke={2.2} />}
+    >
+      检查更新
+    </Button>
+  )
+};
 
 function SettingsSelectRow({
   id,
@@ -408,6 +410,12 @@ export function GeneralSettingsSection() {
         {TOGGLE_SELECT_ROWS.map((row) => (
           <SettingsSelectRow key={row.id} {...row} />
         ))}
+
+        {/* 布局撤回 / 重做快捷键 */}
+        <LayoutShortcutsRow />
+
+        {/* 版本自动更新 */}
+        <SettingsSelectRow {...AUTO_UPDATE_ROW} />
       </Paper>
     </div>
   );

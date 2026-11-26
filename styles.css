@@ -3472,6 +3472,16 @@ body {
   color: #dc2626;
 }
 
+.settings-row-main .platform-icon.layout-shortcuts {
+  background-color: rgba(139, 92, 246, 0.16);
+  color: #a78bfa;
+}
+
+[data-theme="light"] .settings-row-main .platform-icon.layout-shortcuts {
+  background-color: rgba(124, 58, 237, 0.12);
+  color: #7c3aed;
+}
+
 .settings-row-title {
   font-size: 13px;
   font-weight: 600;
@@ -3553,6 +3563,107 @@ body {
 .settings-unit {
   font-size: 11.5px;
   color: var(--text-secondary);
+}
+
+/* Layout Undo / Redo Shortcut Recorders */
+.settings-shortcuts-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-shortcut-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-shortcut-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.settings-shortcut-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-control);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.settings-shortcut-btn:hover {
+  border-color: var(--text-muted);
+  background-color: var(--bg-input-focus);
+}
+
+.settings-shortcut-btn:focus-visible {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.16);
+}
+
+.settings-shortcut-btn.is-recording {
+  min-width: 96px;
+  border-color: var(--accent-blue);
+  background-color: rgba(41, 98, 255, 0.12);
+  color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.18);
+}
+
+[data-theme="dark"] .settings-shortcut-btn.is-recording {
+  background-color: rgba(56, 189, 248, 0.14);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.22);
+}
+
+.settings-shortcut-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.settings-shortcut-keys.is-mac {
+  gap: 3px;
+  letter-spacing: 0.2px;
+}
+
+.settings-shortcut-key {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-shortcut-plus {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin: 0 1px;
+}
+
+.settings-shortcut-recording-text {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Filter Keywords Row (Mantine TagsInput) */

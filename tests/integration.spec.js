@@ -4240,6 +4240,192 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(popupColorCheck.fallbackLightBg).toBe('rgb(255, 255, 255)');
     expect(popupColorCheck.fallbackFooterBorderTop).toBe('none');
   });
+
+  test('30. Preferences Layout Shortcuts row: placement, click-to-record, validation, execution, persistence, profile backup & restore defaults', async () => {
+    // Dismiss onboarding if test is run standalone without test 1
+    await page.evaluate((key) => {
+      if (document.body.classList.contains('driver-active')) {
+        const closeBtn = document.querySelector('.driver-popover-close-btn');
+        if (closeBtn) closeBtn.click();
+      }
+      localStorage.setItem(key, '1');
+    }, STORAGE_ONBOARDING_COMPLETED_KEY);
+
+    const isMac = process.platform === 'darwin';
+    const primaryMod = isMac ? 'Meta' : 'Control';
+    const defaultUndoPress = `${primaryMod}+z`;
+    const defaultRedoPress = `${primaryMod}+Shift+z`;
+    const customUndoPress = `${primaryMod}+Shift+u`;
+    const customRedoPress = `${primaryMod}+Shift+y`;
+
+    // Open Preferences modal
+    const settingsOverlay = page.locator('#settings-modal-overlay');
+    await page.locator('#btn-settings').click();
+    await expect(settingsOverlay).not.toHaveClass(/is-closed/);
+
+    // 1. Verify placement: single row directly between App Icon Badge (#setting-app-badge) and App Updates (#setting-auto-update)
+    const placement = await page.evaluate(() => {
+      const badgeRow = document.getElementById('setting-app-badge')?.closest('.settings-row');
+      const shortcutsRow = document.querySelector('.settings-row-shortcuts');
+      const updateRow = document.getElementById('setting-auto-update')?.closest('.settings-row');
+      const undoBtn = document.getElementById('setting-shortcut-undo');
+      const redoBtn = document.getElementById('setting-shortcut-redo');
+      return {
+        exists: Boolean(badgeRow && shortcutsRow && updateRow && undoBtn && redoBtn),
+        isAfterBadge: Boolean(badgeRow && badgeRow.nextElementSibling === shortcutsRow),
+        isBeforeUpdate: Boolean(shortcutsRow && shortcutsRow.nextElementSibling === updateRow),
+        sameRow: Boolean(
+          undoBtn &&
+            redoBtn &&
+            undoBtn.closest('.settings-row') === shortcutsRow &&
+            redoBtn.closest('.settings-row') === shortcutsRow
+        ),
+        undoShortcut: undoBtn ? undoBtn.getAttribute('data-shortcut') : null,
+        redoShortcut: redoBtn ? redoBtn.getAttribute('data-shortcut') : null,
+        undoText: undoBtn ? undoBtn.textContent.replace(/\s+/g, ' ').trim() : '',
+        redoText: redoBtn ? redoBtn.textContent.replace(/\s+/g, ' ').trim() : ''
+      };
+    });
+    expect(placement.exists).toBe(true);
+    expect(placement.isAfterBadge).toBe(true);
+    expect(placement.isBeforeUpdate).toBe(true);
+    expect(placement.sameRow).toBe(true);
+    expect(placement.undoShortcut).toBe('Mod+Z');
+    expect(placement.redoShortcut).toBe('Mod+Shift+Z');
+    expect(placement.undoText).toBe(isMac ? '⌘Z' : 'Ctrl+Z');
+    expect(placement.redoText).toBe(isMac ? '⇧⌘Z' : 'Ctrl+Shift+Z');
+
+    // Verify bilingual localization (zh & en) updates labels and recording prompt
+    const prevLang = await page.locator('#setting-language').inputValue();
+    await page.selectOption('#setting-language', 'zh');
+    await expect(page.locator('.settings-row-shortcuts .settings-row-title')).toHaveText('布局快捷键');
+    await expect(page.locator('.settings-row-shortcuts .settings-shortcut-label').nth(0)).toHaveText('撤回');
+    await expect(page.locator('.settings-row-shortcuts .settings-shortcut-label').nth(1)).toHaveText('重做');
+    await page.locator('#setting-shortcut-undo').click();
+    await expect(page.locator('#setting-shortcut-undo')).toHaveText('按下快捷键...');
+    await page.keyboard.press('Escape');
+
+    await page.selectOption('#setting-language', 'en');
+    await expect(page.locator('.settings-row-shortcuts .settings-row-title')).toHaveText('Layout Shortcuts');
+    await expect(page.locator('.settings-row-shortcuts .settings-shortcut-label').nth(0)).toHaveText('Undo');
+    await expect(page.locator('.settings-row-shortcuts .settings-shortcut-label').nth(1)).toHaveText('Redo');
+    await page.locator('#setting-shortcut-undo').click();
+    await expect(page.locator('#setting-shortcut-undo')).toHaveText('Press keys...');
+    await page.keyboard.press('Escape');
+    await page.selectOption('#setting-language', prevLang);
+
+    const undoBtn = page.locator('#setting-shortcut-undo');
+    const redoBtn = page.locator('#setting-shortcut-redo');
+
+    // 2. Click to record & press Escape -> cancels recording WITHOUT closing Preferences modal
+    await undoBtn.click();
+    await expect(undoBtn).toHaveAttribute('data-recording', 'true');
+    await page.keyboard.press('Escape');
+    await expect(undoBtn).toHaveAttribute('data-recording', 'false');
+    await expect(settingsOverlay).not.toHaveClass(/is-closed/);
+    await expect(undoBtn).toHaveAttribute('data-shortcut', 'Mod+Z');
+
+    // 3. Validation: plain key without modifier, reserved reload shortcut (Mod+R), and duplicate shortcut are rejected
+    await undoBtn.click();
+    await expect(undoBtn).toHaveAttribute('data-recording', 'true');
+    await page.keyboard.press('a');
+    await expect(undoBtn).toHaveAttribute('data-recording', 'true');
+    await expect(undoBtn).toHaveAttribute('data-shortcut', 'Mod+Z');
+
+    await page.keyboard.press(`${primaryMod}+r`);
+    await expect(undoBtn).toHaveAttribute('data-recording', 'true');
+    await expect(undoBtn).toHaveAttribute('data-shortcut', 'Mod+Z');
+
+    await page.keyboard.press(defaultRedoPress);
+    await expect(undoBtn).toHaveAttribute('data-recording', 'true');
+    await expect(undoBtn).toHaveAttribute('data-shortcut', 'Mod+Z');
+
+    // 4. Record valid custom Undo (Mod+Shift+U) and Redo (Mod+Shift+Y) shortcuts
+    await page.keyboard.press(customUndoPress);
+    await expect(undoBtn).toHaveAttribute('data-recording', 'false');
+    await expect(undoBtn).toHaveAttribute('data-shortcut', 'Mod+Shift+U');
+
+    await redoBtn.click();
+    await expect(redoBtn).toHaveAttribute('data-recording', 'true');
+    await page.keyboard.press(customRedoPress);
+    await expect(redoBtn).toHaveAttribute('data-recording', 'false');
+    await expect(redoBtn).toHaveAttribute('data-shortcut', 'Mod+Shift+Y');
+
+    // Close Settings modal
+    await page.locator('#btn-settings-close').click();
+    await expect(settingsOverlay).toHaveClass(/is-closed/);
+
+    // 5. Execute custom Undo & Redo on a real layout change; old default Mod+Z must NOT undo layout
+    await selectGridLayout(page, '2x2');
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+    await page.locator('#btn-close-3').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(3);
+
+    // Old default Mod+Z should do nothing now
+    await page.keyboard.press(defaultUndoPress);
+    await page.waitForTimeout(120);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(3);
+
+    // Custom Undo restores the closed 4th card
+    await page.keyboard.press(customUndoPress);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+
+    // Custom Redo closes it again
+    await page.keyboard.press(customRedoPress);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(3);
+
+    // Undo back to 4 cards
+    await page.keyboard.press(customUndoPress);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+
+    // 6. Persistence across reload
+    await page.reload();
+    await page.waitForSelector('#grid-stack-container > .grid-stack-item');
+    await page.locator('#btn-settings').click();
+    await expect(settingsOverlay).not.toHaveClass(/is-closed/);
+    await expect(page.locator('#setting-shortcut-undo')).toHaveAttribute('data-shortcut', 'Mod+Shift+U');
+    await expect(page.locator('#setting-shortcut-redo')).toHaveAttribute('data-shortcut', 'Mod+Shift+Y');
+
+    // Verify persisted custom shortcut still works after reload
+    await page.locator('#btn-settings-close').click();
+    await expect(settingsOverlay).toHaveClass(/is-closed/);
+    await page.locator('#btn-close-3').click();
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(3);
+    await page.keyboard.press(customUndoPress);
+    await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
+
+    // 7. Profile Export -> Restore Defaults -> Profile Import round-trip
+    const shortcutExportPath = path.join(userDataDir, 'test-shortcuts-profile.json');
+    await electronApp.evaluate(({ dialog }, targetPath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: targetPath });
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [targetPath] });
+    }, shortcutExportPath);
+
+    await page.locator('#btn-settings').click();
+    await expect(settingsOverlay).not.toHaveClass(/is-closed/);
+    await page.locator('#btn-export-profile').click();
+    await expect.poll(() => fs.existsSync(shortcutExportPath)).toBe(true);
+    const exportedProfile = JSON.parse(fs.readFileSync(shortcutExportPath, 'utf8'));
+    expect(exportedProfile.settings.layoutUndoShortcut).toBe('Mod+Shift+U');
+    expect(exportedProfile.settings.layoutRedoShortcut).toBe('Mod+Shift+Y');
+
+    // Restore Defaults -> shortcuts return to Mod+Z & Mod+Shift+Z
+    await page.locator('#btn-settings-reset').click();
+    await expect(page.locator('#setting-shortcut-undo')).toHaveAttribute('data-shortcut', 'Mod+Z');
+    await expect(page.locator('#setting-shortcut-redo')).toHaveAttribute('data-shortcut', 'Mod+Shift+Z');
+
+    // Import exported profile -> custom shortcuts are restored
+    await page.locator('#btn-import-profile').click();
+    await expect(page.locator('#setting-shortcut-undo')).toHaveAttribute('data-shortcut', 'Mod+Shift+U');
+    await expect(page.locator('#setting-shortcut-redo')).toHaveAttribute('data-shortcut', 'Mod+Shift+Y');
+
+    // Restore defaults cleanly before leaving test
+    await page.locator('#btn-settings-reset').click();
+    await expect(page.locator('#setting-shortcut-undo')).toHaveAttribute('data-shortcut', 'Mod+Z');
+    await expect(page.locator('#setting-shortcut-redo')).toHaveAttribute('data-shortcut', 'Mod+Shift+Z');
+    await page.locator('#btn-settings-close').click();
+    await expect(settingsOverlay).toHaveClass(/is-closed/);
+  });
 });
 
 
