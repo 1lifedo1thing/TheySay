@@ -131,7 +131,7 @@ const AUTO_UPDATE_ROW = {
   titleI18n: 'settings.autoUpdateTitle',
   titleText: '版本自动更新',
   subtitleId: 'setting-update-status-text',
-  subtitleText: '当前 v1.1.0 · GitHub Releases',
+  subtitleText: '当前 v1.1.1 · GitHub Releases',
   options: [
     { value: 'true', i18n: 'settings.optionOnDefault', label: '开启 (默认)' },
     { value: 'false', i18n: 'settings.optionOff', label: '关闭' }
