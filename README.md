@@ -24,7 +24,7 @@ Download the latest installer for **macOS**, **Windows**, or **Linux** from **[G
 
 - **Never Miss an Update**: Unread counters on each card and on your system Dock / taskbar icon show exactly where new posts have arrived. Enable desktop notifications only for your highest-priority accounts while keeping the rest silent, or clear everything with a single click.
 
-- **Personalized & Portable**: Switch effortlessly between Light and Dark themes, customize card and bubble colors, set independent auto-refresh intervals for each platform, receive automatic cross-platform version updates from GitHub Releases, and export or import your entire dashboard layout and followed list as a `.json` backup file anytime.
+- **Personalized & Portable**: Switch effortlessly between **Light**, **Dark**, and **System (Auto)** themes with synchronized native window chrome, independent Light/Dark color palettes, and one-click curated theme presets (plus custom card, background, and bubble colors). Set independent auto-refresh intervals for each platform, receive automatic cross-platform version updates from GitHub Releases, and export or import your entire dashboard layout, palettes, and followed list as a `.json` backup file anytime.
 
 ## Quick Start
 

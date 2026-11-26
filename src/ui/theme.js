@@ -6,20 +6,61 @@ const {
   DEFAULT_DARK_CHAT_BG_COLOR,
   DEFAULT_BUBBLE_BG_COLOR,
   DEFAULT_DARK_BUBBLE_BG_COLOR,
-  HEADER_COLOR_PRESETS
+  HEADER_COLOR_PRESETS,
+  THEME_PALETTE_PRESETS
 } = require('../core/constants');
 const {
+  normalizeThemePreference,
+  resolveEffectiveTheme,
+  getEffectiveTheme,
   getStoredTheme,
   saveStoredTheme,
+  getModeAppearanceColors,
+  saveModeAppearanceColors,
+  syncLegacyAppearanceKeysForMode,
   getHeaderBgColor,
-  saveHeaderBgColor,
   getChatBgColor,
-  saveChatBgColor,
-  getBubbleBgColor,
-  saveBubbleBgColor
+  getBubbleBgColor
 } = require('../core/storage');
 const { clearPostWidgetCache } = require('./popup');
 const { t } = require('../core/i18n');
+
+let themeListenersBound = false;
+
+function getIpcRenderer() {
+  try {
+    const electron = require('electron');
+    return electron && electron.ipcRenderer ? electron.ipcRenderer : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function syncNativeThemePreference(preference, { persist = true } = {}) {
+  const pref = normalizeThemePreference(preference);
+  const ipcRenderer = getIpcRenderer();
+  if (!ipcRenderer) return null;
+  try {
+    if (typeof ipcRenderer.sendSync === 'function') {
+      return ipcRenderer.sendSync('set-theme-preference-sync', {
+        preference: pref,
+        persist
+      });
+    }
+    if (typeof ipcRenderer.send === 'function') {
+      ipcRenderer.send('set-theme-preference', {
+        preference: pref,
+        persist
+      });
+    }
+  } catch (_) {}
+  return null;
+}
+
+function getActiveEffectiveTheme(mode) {
+  if (mode === 'dark' || mode === 'light') return mode;
+  return getEffectiveTheme();
+}
 
 function normalizeHexColor(val, fallback = DEFAULT_HEADER_BG_COLOR) {
   const str = String(val || '').trim();
@@ -30,8 +71,11 @@ function normalizeHexColor(val, fallback = DEFAULT_HEADER_BG_COLOR) {
   return fallback;
 }
 
-function resolveHeaderPalette(bgHex) {
-  const bg = normalizeHexColor(bgHex, DEFAULT_HEADER_BG_COLOR);
+function resolveHeaderPalette(bgHex, mode) {
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const fallback =
+    effectiveMode === 'dark' ? DEFAULT_DARK_HEADER_BG_COLOR : DEFAULT_HEADER_BG_COLOR;
+  const bg = normalizeHexColor(bgHex, fallback);
   const preset = HEADER_COLOR_PRESETS.find((p) => p.bg.toLowerCase() === bg);
   if (preset) {
     return { ...preset, name: t(`settings.colorPreset.${preset.id}`) };
@@ -45,12 +89,12 @@ function resolveHeaderPalette(bgHex) {
       id: 'custom',
       name: t('settings.customColor'),
       bg,
-      text: '#f8fafc',
-      subtext: 'rgba(248, 250, 252, 0.72)',
+      text: '#f4f7fa',
+      subtext: 'rgba(226, 232, 240, 0.72)',
       border: color.darken(0.12).toHex(),
-      hoverBg: 'rgba(255, 255, 255, 0.12)',
-      activeIcon: '#ffffff',
-      activeBg: 'rgba(255, 255, 255, 0.22)',
+      hoverBg: 'rgba(255, 255, 255, 0.1)',
+      activeIcon: '#38bdf8',
+      activeBg: 'rgba(56, 189, 248, 0.2)',
       badgeBorder: 'rgba(255, 255, 255, 0.8)'
     };
   }
@@ -69,9 +113,10 @@ function resolveHeaderPalette(bgHex) {
   };
 }
 
-function buildHeaderSurfaceGradient(bgHex) {
+function buildHeaderSurfaceGradient(bgHex, mode) {
+  const effectiveMode = getActiveEffectiveTheme(mode);
   const fallback =
-    getStoredTheme() === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
+    effectiveMode === 'dark' ? DEFAULT_DARK_HEADER_BG_COLOR : DEFAULT_HEADER_BG_COLOR;
   const norm = normalizeHexColor(bgHex, fallback);
   const { r, g, b } = colord(norm).toRgb();
   return [
@@ -85,43 +130,11 @@ function buildHeaderSurfaceGradient(bgHex) {
   ].join(', ');
 }
 
-function applyHeaderColor(bgHex) {
-  if (typeof document === 'undefined' || !document.documentElement) return;
-  const fallback = getStoredTheme() === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
-  const norm = normalizeHexColor(bgHex, fallback);
-  const root = document.documentElement;
-  root.style.setProperty('--slot-header-bg', norm);
-  root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(norm));
-
-  const currentChatBg = normalizeHexColor(getChatBgColor(), fallback);
-  if (norm === currentChatBg || norm === DEFAULT_HEADER_BG_COLOR || norm === DEFAULT_DARK_HEADER_BG_COLOR) {
-    const chatPalette = resolveChatBgPalette(norm);
-    root.style.setProperty('--slot-header-text', chatPalette.text);
-    root.style.setProperty('--slot-header-subtext', chatPalette.subtext);
-    root.style.setProperty('--slot-header-pill-bg', chatPalette.pillBg);
-    root.style.setProperty('--slot-header-border', 'transparent');
-    root.style.setProperty(
-      '--slot-header-hover-bg',
-      chatPalette.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(19, 23, 34, 0.06)'
-    );
-    root.style.setProperty('--slot-header-active-icon', '#2962ff');
-    root.style.setProperty('--slot-header-active-bg', 'rgba(41, 98, 255, 0.12)');
-    root.style.setProperty('--slot-header-badge-border', 'transparent');
-    return;
-  }
-
-  const palette = resolveHeaderPalette(norm);
-  root.style.setProperty('--slot-header-text', palette.text);
-  root.style.setProperty('--slot-header-subtext', palette.subtext);
-  root.style.setProperty('--slot-header-border', palette.border);
-  root.style.setProperty('--slot-header-hover-bg', palette.hoverBg);
-  root.style.setProperty('--slot-header-active-icon', palette.activeIcon);
-  root.style.setProperty('--slot-header-active-bg', palette.activeBg);
-  root.style.setProperty('--slot-header-badge-border', palette.badgeBorder || 'transparent');
-}
-
-function resolveChatBgPalette(bgHex) {
-  const bg = normalizeHexColor(bgHex, DEFAULT_CHAT_BG_COLOR);
+function resolveChatBgPalette(bgHex, mode) {
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const fallback =
+    effectiveMode === 'dark' ? DEFAULT_DARK_CHAT_BG_COLOR : DEFAULT_CHAT_BG_COLOR;
+  const bg = normalizeHexColor(bgHex, fallback);
   const color = colord(bg);
   const isDark = color.brightness() < 0.55;
   return {
@@ -133,21 +146,68 @@ function resolveChatBgPalette(bgHex) {
   };
 }
 
-function applyChatBgColor(bgHex) {
+function applyHeaderColor(bgHex, mode) {
   if (typeof document === 'undefined' || !document.documentElement) return;
-  const palette = resolveChatBgPalette(bgHex);
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const fallback =
+    effectiveMode === 'dark' ? DEFAULT_DARK_HEADER_BG_COLOR : DEFAULT_HEADER_BG_COLOR;
+  const norm = normalizeHexColor(bgHex, fallback);
+  const root = document.documentElement;
+  root.style.setProperty('--slot-header-bg', norm);
+  root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(norm, effectiveMode));
+
+  const currentChatBg = normalizeHexColor(
+    getChatBgColor(effectiveMode),
+    effectiveMode === 'dark' ? DEFAULT_DARK_CHAT_BG_COLOR : DEFAULT_CHAT_BG_COLOR
+  );
+  if (norm === currentChatBg) {
+    const seamlessPalette = resolveChatBgPalette(norm, effectiveMode);
+    root.style.setProperty('--slot-header-text', seamlessPalette.text);
+    root.style.setProperty('--slot-header-subtext', seamlessPalette.subtext);
+    root.style.setProperty('--slot-header-pill-bg', seamlessPalette.pillBg);
+    root.style.setProperty('--slot-header-border', 'transparent');
+    root.style.setProperty(
+      '--slot-header-hover-bg',
+      seamlessPalette.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(19, 23, 34, 0.06)'
+    );
+    root.style.setProperty('--slot-header-active-icon', '#2962ff');
+    root.style.setProperty('--slot-header-active-bg', 'rgba(41, 98, 255, 0.12)');
+    root.style.setProperty('--slot-header-badge-border', 'transparent');
+    return;
+  }
+
+  const palette = resolveHeaderPalette(norm, effectiveMode);
+  const headerIsDark = colord(norm).brightness() < 0.55;
+  root.style.setProperty('--slot-header-text', palette.text);
+  root.style.setProperty('--slot-header-subtext', palette.subtext);
+  root.style.setProperty(
+    '--slot-header-pill-bg',
+    headerIsDark ? 'rgba(255, 255, 255, 0.11)' : 'rgba(19, 23, 34, 0.055)'
+  );
+  root.style.setProperty('--slot-header-border', palette.border);
+  root.style.setProperty('--slot-header-hover-bg', palette.hoverBg);
+  root.style.setProperty('--slot-header-active-icon', palette.activeIcon);
+  root.style.setProperty('--slot-header-active-bg', palette.activeBg);
+  root.style.setProperty('--slot-header-badge-border', palette.badgeBorder || 'transparent');
+}
+
+function applyChatBgColor(bgHex, mode) {
+  if (typeof document === 'undefined' || !document.documentElement) return;
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const palette = resolveChatBgPalette(bgHex, effectiveMode);
   const root = document.documentElement;
   root.style.setProperty('--bg-card', palette.bg);
   root.style.setProperty('--slot-header-pill-bg', palette.pillBg);
-  const headerBg = normalizeHexColor(getHeaderBgColor(), DEFAULT_HEADER_BG_COLOR);
-  if (
-    headerBg === palette.bg ||
-    headerBg === DEFAULT_HEADER_BG_COLOR ||
-    headerBg === DEFAULT_DARK_HEADER_BG_COLOR
-  ) {
-    root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(headerBg));
+
+  const headerBg = normalizeHexColor(
+    getHeaderBgColor(effectiveMode),
+    effectiveMode === 'dark' ? DEFAULT_DARK_HEADER_BG_COLOR : DEFAULT_HEADER_BG_COLOR
+  );
+  if (headerBg === palette.bg) {
+    root.style.setProperty('--slot-header-surface', buildHeaderSurfaceGradient(headerBg, effectiveMode));
     root.style.setProperty('--slot-header-text', palette.text);
     root.style.setProperty('--slot-header-subtext', palette.subtext);
+    root.style.setProperty('--slot-header-border', 'transparent');
     root.style.setProperty(
       '--slot-header-hover-bg',
       palette.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(19, 23, 34, 0.06)'
@@ -155,8 +215,11 @@ function applyChatBgColor(bgHex) {
   }
 }
 
-function resolveBubblePalette(bgHex) {
-  const bg = normalizeHexColor(bgHex, DEFAULT_BUBBLE_BG_COLOR);
+function resolveBubblePalette(bgHex, mode) {
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const fallback =
+    effectiveMode === 'dark' ? DEFAULT_DARK_BUBBLE_BG_COLOR : DEFAULT_BUBBLE_BG_COLOR;
+  const bg = normalizeHexColor(bgHex, fallback);
   const color = colord(bg);
   const isDark = color.brightness() < 0.55;
   const rgb = color.toRgb();
@@ -190,9 +253,10 @@ function resolveBubblePalette(bgHex) {
   };
 }
 
-function applyBubbleColor(bgHex) {
+function applyBubbleColor(bgHex, mode) {
   if (typeof document === 'undefined' || !document.documentElement) return;
-  const palette = resolveBubblePalette(bgHex);
+  const effectiveMode = getActiveEffectiveTheme(mode);
+  const palette = resolveBubblePalette(bgHex, effectiveMode);
   const root = document.documentElement;
   root.style.setProperty('--bg-bubble', palette.bg);
   root.style.setProperty('--bg-bubble-hover', palette.hoverBg);
@@ -204,61 +268,159 @@ function applyBubbleColor(bgHex) {
   root.style.setProperty('--border-bubble-unread', palette.unreadBorder);
 }
 
-function applyTheme(theme, btnThemeToggle) {
-  const prevTheme = document.documentElement.getAttribute('data-theme');
-  document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.setAttribute('data-mantine-color-scheme', theme === 'light' ? 'light' : 'dark');
-  saveStoredTheme(theme);
-  if (typeof clearPostWidgetCache === 'function') {
-    clearPostWidgetCache();
+function applyModeAppearance(mode) {
+  const resolvedMode = getActiveEffectiveTheme(mode);
+  const { headerBgColor, chatBgColor, bubbleBgColor } = getModeAppearanceColors(resolvedMode);
+  applyChatBgColor(chatBgColor, resolvedMode);
+  applyHeaderColor(headerBgColor, resolvedMode);
+  applyBubbleColor(bubbleBgColor, resolvedMode);
+  return { headerBgColor, chatBgColor, bubbleBgColor };
+}
+
+function applyThemePalettePreset(paletteId, mode) {
+  const resolvedMode = getActiveEffectiveTheme(mode);
+  const list = THEME_PALETTE_PRESETS[resolvedMode] || [];
+  const palette = list.find((p) => p.id === paletteId);
+  if (!palette) return null;
+  saveModeAppearanceColors(
+    {
+      chatBgColor: palette.chatBg,
+      bubbleBgColor: palette.bubbleBg,
+      headerBgColor: palette.headerBg
+    },
+    resolvedMode
+  );
+  applyModeAppearance(resolvedMode);
+  return palette;
+}
+
+function getThemeToggleTitle(preference, effectiveTheme) {
+  if (preference === 'system') {
+    return effectiveTheme === 'dark'
+      ? t('nav.systemDarkSwitchToLight')
+      : t('nav.systemLightSwitchToDark');
   }
-  const toggleEl = btnThemeToggle || document.getElementById('btn-theme-toggle');
-  if (toggleEl) {
-    toggleEl.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
-    toggleEl.title = theme === 'light' ? t('nav.switchToDark') : t('nav.switchToLight');
+  return effectiveTheme === 'light' ? t('nav.switchToDark') : t('nav.switchToLight');
+}
+
+function applyTheme(themePreference, btnThemeToggle, options = {}) {
+  const pref = normalizeThemePreference(themePreference);
+  const shouldPersist = options.persist !== false;
+
+  const nativeState = syncNativeThemePreference(pref, { persist: shouldPersist });
+  const systemIsDark =
+    typeof options.systemIsDark === 'boolean'
+      ? options.systemIsDark
+      : nativeState && nativeState.themeSource === 'system' && typeof nativeState.shouldUseDarkColors === 'boolean'
+        ? nativeState.shouldUseDarkColors
+        : undefined;
+
+  const effectiveTheme = resolveEffectiveTheme(pref, { systemIsDark });
+  const prevEffective =
+    typeof document !== 'undefined' && document.documentElement
+      ? document.documentElement.getAttribute('data-theme')
+      : null;
+
+  if (shouldPersist) {
+    saveStoredTheme(pref);
   }
 
-  if (prevTheme && prevTheme !== theme) {
-    const curHeader = getHeaderBgColor();
-    if (curHeader === DEFAULT_HEADER_BG_COLOR || curHeader === DEFAULT_DARK_HEADER_BG_COLOR) {
-      const nextHeader = theme === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
-      saveHeaderBgColor(nextHeader);
-      applyHeaderColor(nextHeader);
-    }
-    const curChat = getChatBgColor();
-    if (curChat === DEFAULT_CHAT_BG_COLOR || curChat === DEFAULT_DARK_CHAT_BG_COLOR) {
-      const nextChat = theme === 'light' ? DEFAULT_CHAT_BG_COLOR : DEFAULT_DARK_CHAT_BG_COLOR;
-      saveChatBgColor(nextChat);
-      applyChatBgColor(nextChat);
-    }
-    const curBubble = getBubbleBgColor();
-    if (curBubble === DEFAULT_BUBBLE_BG_COLOR || curBubble === DEFAULT_DARK_BUBBLE_BG_COLOR) {
-      const nextBubble = theme === 'light' ? DEFAULT_BUBBLE_BG_COLOR : DEFAULT_DARK_BUBBLE_BG_COLOR;
-      saveBubbleBgColor(nextBubble);
-      applyBubbleColor(nextBubble);
-    }
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.setAttribute('data-theme', effectiveTheme);
+    document.documentElement.setAttribute('data-theme-preference', pref);
+    document.documentElement.setAttribute('data-mantine-color-scheme', effectiveTheme);
   }
+
+  if (prevEffective && prevEffective !== effectiveTheme && typeof clearPostWidgetCache === 'function') {
+    clearPostWidgetCache();
+  }
+
+  const toggleEl =
+    btnThemeToggle ||
+    (typeof document !== 'undefined' ? document.getElementById('btn-theme-toggle') : null);
+  if (toggleEl) {
+    toggleEl.setAttribute('aria-checked', effectiveTheme === 'dark' ? 'true' : 'false');
+    toggleEl.setAttribute('data-theme-preference', pref);
+    toggleEl.title = getThemeToggleTitle(pref, effectiveTheme);
+  }
+
+  syncLegacyAppearanceKeysForMode(effectiveTheme);
+  applyModeAppearance(effectiveTheme);
+
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(
+      new CustomEvent('theysay:theme-changed', {
+        detail: {
+          preference: pref,
+          effectiveTheme
+        }
+      })
+    );
+  }
+
+  return { preference: pref, effectiveTheme };
 }
 
 function initTheme(btnThemeToggle) {
-  const saved = getStoredTheme();
-  applyTheme(saved, btnThemeToggle);
-  applyHeaderColor(getHeaderBgColor());
-  applyChatBgColor(getChatBgColor());
-  applyBubbleColor(getBubbleBgColor());
+  const savedPref = getStoredTheme();
+  applyTheme(savedPref, btnThemeToggle, { persist: false });
 
-  if (btnThemeToggle) {
+  if (btnThemeToggle && !btnThemeToggle.dataset.themeBound) {
+    btnThemeToggle.dataset.themeBound = '1';
     btnThemeToggle.addEventListener('click', () => {
-      const cur = document.documentElement.getAttribute('data-theme') || 'light';
-      const next = cur === 'dark' ? 'light' : 'dark';
+      const curEffective =
+        document.documentElement.getAttribute('data-theme') || getEffectiveTheme();
+      const next = curEffective === 'dark' ? 'light' : 'dark';
       applyTheme(next, btnThemeToggle);
     });
+  }
+
+  if (!themeListenersBound) {
+    themeListenersBound = true;
+
+    const ipcRenderer = getIpcRenderer();
+    if (ipcRenderer && typeof ipcRenderer.on === 'function') {
+      ipcRenderer.on('system-theme-updated', (event, payload) => {
+        if (getStoredTheme() !== 'system') return;
+        const nextSystemIsDark =
+          payload && typeof payload.shouldUseDarkColors === 'boolean'
+            ? payload.shouldUseDarkColors
+            : undefined;
+        applyTheme('system', btnThemeToggle, {
+          persist: false,
+          systemIsDark: nextSystemIsDark
+        });
+      });
+    }
+
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      try {
+        const mql = window.matchMedia('(prefers-color-scheme: dark)');
+        const onMediaChange = (e) => {
+          if (getStoredTheme() !== 'system') return;
+          const nextEffective = e.matches ? 'dark' : 'light';
+          if (document.documentElement.getAttribute('data-theme') !== nextEffective) {
+            applyTheme('system', btnThemeToggle, {
+              persist: false,
+              systemIsDark: Boolean(e.matches)
+            });
+          }
+        };
+        if (typeof mql.addEventListener === 'function') {
+          mql.addEventListener('change', onMediaChange);
+        } else if (typeof mql.addListener === 'function') {
+          mql.addListener(onMediaChange);
+        }
+      } catch (_) {}
+    }
   }
 }
 
 module.exports = {
   applyTheme,
   initTheme,
+  applyModeAppearance,
+  applyThemePalettePreset,
   applyHeaderColor,
   buildHeaderSurfaceGradient,
   resolveHeaderPalette,
@@ -266,5 +428,6 @@ module.exports = {
   resolveChatBgPalette,
   applyBubbleColor,
   resolveBubblePalette,
-  normalizeHexColor
+  normalizeHexColor,
+  syncNativeThemePreference
 };

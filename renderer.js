@@ -4,6 +4,9 @@ const {
   getStoredPreset,
   saveStoredPreset,
   getStoredTheme,
+  resolveEffectiveTheme,
+  getEffectiveTheme,
+  saveModeAppearanceColors,
   saveGridLayout,
   saveRawGridLayout,
   saveHandlesArray,
@@ -32,6 +35,8 @@ const {
 const {
   initTheme,
   applyTheme,
+  applyModeAppearance,
+  syncNativeThemePreference,
   applyHeaderColor,
   applyChatBgColor,
   applyBubbleColor
@@ -100,13 +105,20 @@ const {
   refreshOnboardingLocaleUI
 } = require('./src/ui/onboarding');
 
-// Sync stored/default theme ('light' on first launch) before mounting Mantine outer shell
-const initialTheme = getStoredTheme();
-document.documentElement.setAttribute('data-theme', initialTheme);
-document.documentElement.setAttribute(
-  'data-mantine-color-scheme',
-  initialTheme === 'dark' ? 'dark' : 'light'
-);
+// Sync stored/default theme preference ('light' on first launch) before mounting Mantine outer shell
+const initialThemePref = getStoredTheme();
+const initialNativeState = syncNativeThemePreference(initialThemePref, { persist: false });
+const initialEffectiveTheme = resolveEffectiveTheme(initialThemePref, {
+  systemIsDark:
+    initialNativeState &&
+    initialNativeState.themeSource === 'system' &&
+    typeof initialNativeState.shouldUseDarkColors === 'boolean'
+      ? initialNativeState.shouldUseDarkColors
+      : undefined
+});
+document.documentElement.setAttribute('data-theme', initialEffectiveTheme);
+document.documentElement.setAttribute('data-theme-preference', initialThemePref);
+document.documentElement.setAttribute('data-mantine-color-scheme', initialEffectiveTheme);
 
 // Mount React + Mantine outer shell synchronously before binding global UI elements
 mountMantineShell();
@@ -318,7 +330,11 @@ async function handleImportProfile() {
       }
       refreshLocalizedAppUI(settings.language);
     }
-    if (settings.theme === 'dark' || settings.theme === 'light') {
+    if (
+      settings.theme === 'dark' ||
+      settings.theme === 'light' ||
+      settings.theme === 'system'
+    ) {
       applyTheme(settings.theme, btnThemeToggle);
     }
     if (typeof settings.twitterIntervalMinutes === 'number' && settings.twitterIntervalMinutes > 0) {
@@ -347,17 +363,26 @@ async function handleImportProfile() {
     if (typeof settings.autoCheckUpdates === 'boolean') {
       saveAutoCheckUpdates(settings.autoCheckUpdates);
     }
-    if (typeof settings.headerBgColor === 'string' && settings.headerBgColor.trim()) {
-      saveHeaderBgColor(settings.headerBgColor.trim());
-      applyHeaderColor(settings.headerBgColor.trim());
-    }
-    if (typeof settings.chatBgColor === 'string' && settings.chatBgColor.trim()) {
-      saveChatBgColor(settings.chatBgColor.trim());
-      applyChatBgColor(settings.chatBgColor.trim());
-    }
-    if (typeof settings.bubbleBgColor === 'string' && settings.bubbleBgColor.trim()) {
-      saveBubbleBgColor(settings.bubbleBgColor.trim());
-      applyBubbleColor(settings.bubbleBgColor.trim());
+    if (settings.appearance && typeof settings.appearance === 'object') {
+      if (settings.appearance.light && typeof settings.appearance.light === 'object') {
+        saveModeAppearanceColors(settings.appearance.light, 'light');
+      }
+      if (settings.appearance.dark && typeof settings.appearance.dark === 'object') {
+        saveModeAppearanceColors(settings.appearance.dark, 'dark');
+      }
+      applyModeAppearance(getEffectiveTheme());
+    } else {
+      const activeMode = getEffectiveTheme();
+      if (typeof settings.headerBgColor === 'string' && settings.headerBgColor.trim()) {
+        saveHeaderBgColor(settings.headerBgColor.trim(), activeMode);
+      }
+      if (typeof settings.chatBgColor === 'string' && settings.chatBgColor.trim()) {
+        saveChatBgColor(settings.chatBgColor.trim(), activeMode);
+      }
+      if (typeof settings.bubbleBgColor === 'string' && settings.bubbleBgColor.trim()) {
+        saveBubbleBgColor(settings.bubbleBgColor.trim(), activeMode);
+      }
+      applyModeAppearance(activeMode);
     }
     // (legacy profiles may contain `tickerHighlightEnabled`; highlighting is always on now, so it is ignored)
     if (typeof settings.tickerFgColor === 'string' && settings.tickerFgColor.trim()) {

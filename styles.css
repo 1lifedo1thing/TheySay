@@ -1,5 +1,5 @@
 :root {
-  --bg-app: #090d14;
+  --bg-app: #070b12;
   --bg-nav: #0f1621;
   --bg-card: #0f1723;
   --bg-card-header: #0f1723;
@@ -17,12 +17,12 @@
   --bg-bubble: #172332;
   --bg-bubble-hover: #1e2d3f;
   --bg-bubble-unread: #163650;
-  --border-bubble: rgba(255, 255, 255, 0.06);
-  --border-bubble-hover: rgba(255, 255, 255, 0.11);
+  --border-bubble: rgba(255, 255, 255, 0.07);
+  --border-bubble-hover: rgba(255, 255, 255, 0.13);
   --border-bubble-unread: rgba(29, 155, 240, 0.45);
-  --shadow-bubble: 0 1px 2px rgba(0, 0, 0, 0.25);
-  --bg-date-pill: rgba(9, 13, 20, 0.52);
-  --text-date-pill: #ffffff;
+  --shadow-bubble: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --bg-date-pill: rgba(148, 163, 184, 0.18);
+  --text-date-pill: #dce5f0;
   --bg-input: #17202c;
   --bg-input-focus: #0d131c;
   --bg-control: #17202c;
@@ -509,6 +509,18 @@ body {
 [data-theme="dark"] .theme-thumb-icon.moon,
 :root:not([data-theme="light"]) .theme-thumb-icon.moon {
   display: block;
+}
+
+.theme-auto-indicator {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-blue);
+  box-shadow: 0 0 0 1.5px var(--bg-nav);
+  pointer-events: none;
 }
 
 /* Login Accounts Dropdown Menu */
@@ -1176,6 +1188,17 @@ body {
   overflow: hidden;
   position: relative;
   transition: box-shadow 0.2s, background-color 0.2s;
+}
+
+:root:not([data-theme="light"]) .slot-card {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+}
+
+:root:not([data-theme="light"]) .top-nav {
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 
 /* Priority Account Highlight */
@@ -3208,7 +3231,7 @@ body {
   width: 100%;
   max-width: 600px;
   max-height: 92vh;
-  background-color: var(--bg-card);
+  background-color: var(--bg-popover);
   border: 1px solid var(--border-color);
   border-radius: 14px;
   box-shadow: var(--shadow-popover);
@@ -3283,6 +3306,28 @@ body {
   letter-spacing: 0.4px;
   margin-bottom: 7px;
   padding-left: 2px;
+}
+
+.settings-section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  padding: 0 2px;
+}
+
+.settings-section-header-row .settings-section-title {
+  margin-bottom: 0;
+  padding-left: 0;
+}
+
+.mantine-Badge-root.appearance-mode-badge {
+  height: 19px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* 分组列表: 每个 section 一个圆角容器, 内部以细分割线分行 (macOS 系统设置风格) */
@@ -3764,6 +3809,146 @@ body {
 }
 
 /* ====================================================
+   Theme Mode Segmented Control & One-Click Palette Packs
+   ==================================================== */
+.theme-mode-segmented {
+  background-color: var(--bg-control) !important;
+  border: 1px solid var(--border-subtle) !important;
+  padding: 2px !important;
+}
+
+.theme-mode-segmented .mantine-SegmentedControl-indicator {
+  background-color: #1f2b3c !important;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.32) !important;
+}
+
+[data-theme="light"] .theme-mode-segmented .mantine-SegmentedControl-indicator {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.06);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14) !important;
+}
+
+.theme-mode-segmented .mantine-SegmentedControl-label {
+  padding: 4px 9px !important;
+  color: var(--text-secondary) !important;
+  transition: color 0.15s ease;
+}
+
+.theme-mode-segmented .mantine-SegmentedControl-label[data-active="true"] {
+  color: var(--text-main) !important;
+}
+
+.theme-mode-segment-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settings-row-palettes {
+  gap: 9px;
+}
+
+.theme-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  width: 100%;
+}
+
+.theme-palette-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 8px;
+  background-color: var(--bg-control);
+  border: 1.5px solid var(--border-subtle);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.theme-palette-card:hover {
+  border-color: var(--accent-blue);
+  background-color: var(--bg-control-hover);
+  transform: translateY(-1px);
+}
+
+.theme-palette-card.active {
+  border-color: var(--accent-blue);
+  background-color: rgba(29, 155, 240, 0.1);
+  box-shadow: 0 0 0 1.5px rgba(29, 155, 240, 0.22);
+}
+
+.theme-palette-swatch {
+  position: relative;
+  width: 34px;
+  height: 26px;
+  border-radius: 5px;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+[data-theme="light"] .theme-palette-swatch {
+  border-color: rgba(15, 23, 42, 0.13);
+}
+
+.theme-palette-swatch-bar {
+  height: 6px;
+  width: 100%;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.16);
+}
+
+.theme-palette-swatch-bubbles {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2.5px;
+  padding: 2.5px 3.5px;
+}
+
+.theme-palette-swatch-bubble {
+  display: block;
+  height: 4.5px;
+  border-radius: 2.5px;
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="light"] .theme-palette-swatch-bubble {
+  box-shadow: 0 0 0 0.5px rgba(15, 23, 42, 0.16);
+}
+
+.theme-palette-swatch-bubble.is-wide {
+  width: 82%;
+}
+
+.theme-palette-swatch-bubble.is-short {
+  width: 56%;
+}
+
+.theme-palette-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ====================================================
    Card Header Color Presets & Mini Preview in Settings
    ==================================================== */
 .settings-row-main .platform-icon.header-theme {
@@ -4187,8 +4372,36 @@ body {
   height: 7px;
   border-radius: 50%;
   background-color: #22b8cf;
-  box-shadow: 0 0 0 1.5px var(--bg-sidebar);
+  box-shadow: 0 0 0 1.5px var(--bg-nav);
   pointer-events: none;
+}
+
+/* Mantine Tooltip dark/light harmony (replaces stark white tooltip in dark mode) */
+.mantine-Tooltip-tooltip {
+  background-color: #1c2533 !important;
+  color: #eef3f8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.48) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  padding: 5px 9px !important;
+}
+
+.mantine-Tooltip-arrow {
+  background-color: #1c2533 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+[data-theme="light"] .mantine-Tooltip-tooltip {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18) !important;
+}
+
+[data-theme="light"] .mantine-Tooltip-arrow {
+  background-color: #1e293b !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
 }
 
 .mantine-Button-root.btn-sync-tickers,
@@ -4292,8 +4505,19 @@ body {
   min-width: 18px;
   min-height: 18px;
   border-radius: 5px;
-  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
   cursor: pointer;
+}
+
+[data-theme="light"] .mantine-ColorSwatch-root.ticker-preset-chip {
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+.mantine-ColorSwatch-root.ticker-preset-chip:hover,
+[data-theme="light"] .mantine-ColorSwatch-root.ticker-preset-chip:hover,
+.mantine-ColorSwatch-root.ticker-preset-chip.active,
+[data-theme="light"] .mantine-ColorSwatch-root.ticker-preset-chip.active {
+  border-color: var(--accent-blue);
 }
 
 /* ====================================================
@@ -4410,6 +4634,11 @@ body {
   text-transform: none;
   background-color: var(--bg-date-pill);
   color: var(--text-date-pill);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] .mantine-Badge-root.im-date-pill {
+  border-color: transparent;
 }
 
 .mantine-Badge-root.tweet-tag {

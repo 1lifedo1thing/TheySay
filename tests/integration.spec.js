@@ -12,6 +12,14 @@ const {
   STORAGE_HEADER_BG_COLOR_KEY,
   STORAGE_CHAT_BG_COLOR_KEY,
   STORAGE_BUBBLE_BG_COLOR_KEY,
+  STORAGE_LIGHT_HEADER_BG_COLOR_KEY,
+  STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+  STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY,
+  STORAGE_DARK_HEADER_BG_COLOR_KEY,
+  STORAGE_DARK_CHAT_BG_COLOR_KEY,
+  STORAGE_DARK_BUBBLE_BG_COLOR_KEY,
+  STORAGE_APPEARANCE_MIGRATED_KEY,
+  STORAGE_THEME_KEY,
   STORAGE_LANGUAGE_KEY,
   STORAGE_ONBOARDING_COMPLETED_KEY
 } = require('../src/core/constants');
@@ -372,60 +380,147 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     expect(headerStyle.afterBgImage).toContain('78%');
   });
 
-  test('3. Theme switching, Settings modal & Windows/macOS global Escape handling', async () => {
+  test('3. Theme switching (Light/Dark/System), per-mode independent palettes, nativeTheme sync & Settings Escape', async () => {
     const initialThemeState = await page.evaluate(() => ({
       dataTheme: document.documentElement.getAttribute('data-theme'),
-      mantineScheme: document.documentElement.getAttribute('data-mantine-color-scheme')
+      themePref: document.documentElement.getAttribute('data-theme-preference'),
+      mantineScheme: document.documentElement.getAttribute('data-mantine-color-scheme'),
+      cssChatBg: document.documentElement.style.getPropertyValue('--bg-card')
     }));
     expect(initialThemeState.dataTheme).toBe('light');
+    expect(initialThemeState.themePref).toBe('light');
     expect(initialThemeState.mantineScheme).toBe('light');
+    expect(initialThemeState.cssChatBg).toBe('#f8f9fd');
 
-    await page.locator('#btn-theme-toggle').click();
-    const toggledTheme = await page.evaluate(() => ({
-      dataTheme: document.documentElement.getAttribute('data-theme'),
-      mantineScheme: document.documentElement.getAttribute('data-mantine-color-scheme')
-    }));
-    expect(toggledTheme.dataTheme).toBe('dark');
-    expect(toggledTheme.mantineScheme).toBe('dark');
+    const initialNativeTheme = await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+    expect(initialNativeTheme).toBe('light');
 
-    // Open Settings Modal
+    // Open Settings Modal in Light Mode & pick the Sage Green one-click palette pack
     const settingsOverlay = page.locator('#settings-modal-overlay');
     await expect(settingsOverlay).toHaveClass(/is-closed/);
     await page.locator('#btn-settings').click();
     await expect(settingsOverlay).not.toHaveClass(/is-closed/);
     await expect(settingsOverlay.locator('.settings-modal-dialog')).toHaveClass(/mantine-Paper-root/);
 
+    const sagePaletteBtn = page.locator('#setting-theme-palettes .theme-palette-card[data-palette-id="lightSage"]');
+    await expect(sagePaletteBtn).toBeVisible();
+    await sagePaletteBtn.click();
+    await expect(sagePaletteBtn).toHaveClass(/active/);
+
+    const lightPaletteApplied = await page.evaluate(
+      ({ lightChatKey }) => ({
+        cssChatBg: document.documentElement.style.getPropertyValue('--bg-card'),
+        cssHeaderBg: document.documentElement.style.getPropertyValue('--slot-header-bg'),
+        cssBubbleBg: document.documentElement.style.getPropertyValue('--bg-bubble'),
+        storedLightChat: localStorage.getItem(lightChatKey)
+      }),
+      { lightChatKey: STORAGE_LIGHT_CHAT_BG_COLOR_KEY }
+    );
+    expect(lightPaletteApplied.cssChatBg).toBe('#e7efe4');
+    expect(lightPaletteApplied.cssHeaderBg).toBe('#e7efe4');
+    expect(lightPaletteApplied.cssBubbleBg).toBe('#ffffff');
+    expect(lightPaletteApplied.storedLightChat).toBe('#e7efe4');
+
     // Press Escape to verify main process before-input-event -> global-escape closes modal
     await page.keyboard.press('Escape');
     await expect(settingsOverlay).toHaveClass(/is-closed/);
 
-    // Reopen Settings Modal, modify settings (auto-saved immediately), and close
+    // Switch to Dark Mode via sidebar toggle:
+    // Custom Light Mode chat background (#e7efe4) MUST NOT leak into Dark Mode!
+    await page.locator('#btn-theme-toggle').click();
+    const toggledTheme = await page.evaluate(() => ({
+      dataTheme: document.documentElement.getAttribute('data-theme'),
+      themePref: document.documentElement.getAttribute('data-theme-preference'),
+      mantineScheme: document.documentElement.getAttribute('data-mantine-color-scheme'),
+      cssChatBg: document.documentElement.style.getPropertyValue('--bg-card'),
+      cssHeaderBg: document.documentElement.style.getPropertyValue('--slot-header-bg'),
+      cssBubbleBg: document.documentElement.style.getPropertyValue('--bg-bubble')
+    }));
+    expect(toggledTheme.dataTheme).toBe('dark');
+    expect(toggledTheme.themePref).toBe('dark');
+    expect(toggledTheme.mantineScheme).toBe('dark');
+    expect(toggledTheme.cssChatBg).toBe('#0f1723');
+    expect(toggledTheme.cssHeaderBg).toBe('#0f1723');
+    expect(toggledTheme.cssBubbleBg).toBe('#172332');
+
+    // Verify Electron main process nativeTheme.themeSource synced (native window title bar)
+    const darkNativeTheme = await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+    expect(darkNativeTheme).toBe('dark');
+
+    // Reopen Settings Modal in Dark Mode: verify dark palette packs & dark swatches are shown
     await page.locator('#btn-settings').click();
     await expect(settingsOverlay).not.toHaveClass(/is-closed/);
+    await expect(page.locator('#setting-theme-palettes')).toHaveAttribute('data-mode', 'dark');
+    await expect(page.locator('#setting-chat-bg-presets')).toHaveAttribute('data-mode', 'dark');
 
     await expect(page.locator('#setting-twitter-interval')).toHaveClass(/mantine-NativeSelect-input/);
     await page.selectOption('#setting-twitter-interval', '15');
+
+    // Apply TradingView Charcoal dark palette pack, then customize header to Royal Blue (#2563eb)
+    const charcoalPaletteBtn = page.locator('#setting-theme-palettes .theme-palette-card[data-palette-id="darkCharcoal"]');
+    await expect(charcoalPaletteBtn).toBeVisible();
+    await charcoalPaletteBtn.click();
+    await expect(charcoalPaletteBtn).toHaveClass(/active/);
+
     const bluePresetChip = page.locator('#setting-header-presets .header-preset-chip[data-bg="#2563eb"]');
     await expect(bluePresetChip).toHaveClass(/mantine-ColorSwatch-root/);
     await bluePresetChip.click();
 
-    const chatBgPresetChip = page.locator('#setting-chat-bg-presets .chat-bg-preset-chip[data-bg="#eef2f6"]');
+    const chatBgPresetChip = page.locator('#setting-chat-bg-presets .chat-bg-preset-chip[data-bg="#131722"]');
     await expect(chatBgPresetChip).toHaveClass(/mantine-ColorSwatch-root/);
     await chatBgPresetChip.click();
 
-    const bubbleBgPresetChip = page.locator('#setting-bubble-bg-presets .bubble-bg-preset-chip[data-bg="#f1f4f9"]');
+    const bubbleBgPresetChip = page.locator('#setting-bubble-bg-presets .bubble-bg-preset-chip[data-bg="#1e222d"]');
     await expect(bubbleBgPresetChip).toHaveClass(/mantine-ColorSwatch-root/);
     await bubbleBgPresetChip.click();
 
+    // Verify switching to "System" (Auto) via SegmentedControl updates nativeTheme.themeSource === 'system'
+    // and dynamically switches palettes when system-theme-updated IPC fires
+    await page.locator('#setting-theme-mode label', { has: page.locator('[data-theme-option="system"]') }).click();
+    const systemNativeTheme = await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+    expect(systemNativeTheme).toBe('system');
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme-preference'))).toBe('system');
+
+    // Simulate OS switching to Light -> restores Light Mode's Sage Green (#e7efe4) intact
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) win.webContents.send('system-theme-updated', { themeSource: 'system', shouldUseDarkColors: false });
+    });
+    await expect.poll(() =>
+      page.evaluate(() => ({
+        theme: document.documentElement.getAttribute('data-theme'),
+        bg: document.documentElement.style.getPropertyValue('--bg-card')
+      }))
+    ).toEqual({ theme: 'light', bg: '#e7efe4' });
+
+    // Simulate OS switching to Dark -> restores Dark Mode's Charcoal (#131722) + #2563eb header intact
+    await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) win.webContents.send('system-theme-updated', { themeSource: 'system', shouldUseDarkColors: true });
+    });
+    await expect.poll(() =>
+      page.evaluate(() => ({
+        theme: document.documentElement.getAttribute('data-theme'),
+        bg: document.documentElement.style.getPropertyValue('--bg-card'),
+        header: document.documentElement.style.getPropertyValue('--slot-header-bg')
+      }))
+    ).toEqual({ theme: 'dark', bg: '#131722', header: '#2563eb' });
+
+    // Set explicitly back to Dark Mode via SegmentedControl & close Settings
+    await page.locator('#setting-theme-mode label', { has: page.locator('[data-theme-option="dark"]') }).click();
     await page.locator('#btn-settings-close').click();
     await expect(settingsOverlay).toHaveClass(/is-closed/);
 
     const savedSettings = await page.evaluate(
-      ({ intervalKey, headerBgKey, chatBgKey, bubbleBgKey }) => ({
+      ({ intervalKey, headerBgKey, chatBgKey, bubbleBgKey, lightChatKey, darkChatKey, darkBubbleKey, darkHeaderKey }) => ({
         twitterInterval: localStorage.getItem(intervalKey),
         headerBg: localStorage.getItem(headerBgKey),
         chatBg: localStorage.getItem(chatBgKey),
         bubbleBg: localStorage.getItem(bubbleBgKey),
+        lightChat: localStorage.getItem(lightChatKey),
+        darkChat: localStorage.getItem(darkChatKey),
+        darkBubble: localStorage.getItem(darkBubbleKey),
+        darkHeader: localStorage.getItem(darkHeaderKey),
         cssHeaderBg: document.documentElement.style.getPropertyValue('--slot-header-bg'),
         cssChatBg: document.documentElement.style.getPropertyValue('--bg-card'),
         cssBubbleBg: document.documentElement.style.getPropertyValue('--bg-bubble')
@@ -434,17 +529,95 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
         intervalKey: STORAGE_TWITTER_INTERVAL_KEY,
         headerBgKey: STORAGE_HEADER_BG_COLOR_KEY,
         chatBgKey: STORAGE_CHAT_BG_COLOR_KEY,
-        bubbleBgKey: STORAGE_BUBBLE_BG_COLOR_KEY
+        bubbleBgKey: STORAGE_BUBBLE_BG_COLOR_KEY,
+        lightChatKey: STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+        darkChatKey: STORAGE_DARK_CHAT_BG_COLOR_KEY,
+        darkBubbleKey: STORAGE_DARK_BUBBLE_BG_COLOR_KEY,
+        darkHeaderKey: STORAGE_DARK_HEADER_BG_COLOR_KEY
       }
     );
 
     expect(savedSettings.twitterInterval).toBe('15');
     expect(savedSettings.headerBg).toBe('#2563eb');
-    expect(savedSettings.chatBg).toBe('#eef2f6');
-    expect(savedSettings.bubbleBg).toBe('#f1f4f9');
+    expect(savedSettings.chatBg).toBe('#131722');
+    expect(savedSettings.bubbleBg).toBe('#1e222d');
+    expect(savedSettings.lightChat).toBe('#e7efe4');
+    expect(savedSettings.darkHeader).toBe('#2563eb');
+    expect(savedSettings.darkChat).toBe('#131722');
+    expect(savedSettings.darkBubble).toBe('#1e222d');
     expect(savedSettings.cssHeaderBg).toBe('#2563eb');
-    expect(savedSettings.cssChatBg).toBe('#eef2f6');
-    expect(savedSettings.cssBubbleBg).toBe('#f1f4f9');
+    expect(savedSettings.cssChatBg).toBe('#131722');
+    expect(savedSettings.cssBubbleBg).toBe('#1e222d');
+
+    // Verify legacy single-slot migration routes a light custom chat color to light mode
+    // and leaves dark mode cleanly on its dark default instead of leaking light green into dark mode
+    const migrationCheck = await page.evaluate(
+      ({
+        migratedKey,
+        themeKey,
+        legacyHeaderKey,
+        legacyChatKey,
+        legacyBubbleKey,
+        lightHeaderKey,
+        lightChatKey,
+        lightBubbleKey,
+        darkHeaderKey,
+        darkChatKey,
+        darkBubbleKey
+      }) => {
+        const snapshot = {};
+        const keys = [
+          migratedKey,
+          themeKey,
+          legacyHeaderKey,
+          legacyChatKey,
+          legacyBubbleKey,
+          lightHeaderKey,
+          lightChatKey,
+          lightBubbleKey,
+          darkHeaderKey,
+          darkChatKey,
+          darkBubbleKey
+        ];
+        keys.forEach((k) => {
+          snapshot[k] = localStorage.getItem(k);
+        });
+        try {
+          keys.forEach((k) => localStorage.removeItem(k));
+          localStorage.setItem(themeKey, 'dark');
+          localStorage.setItem(legacyChatKey, '#e5eddf'); // legacy light green chat bg stuck in dark mode
+          localStorage.setItem(legacyHeaderKey, '#0f1723');
+          localStorage.setItem(legacyBubbleKey, '#172332');
+
+          const storage = require('./src/core/storage');
+          const lightColors = storage.getModeAppearanceColors('light');
+          const darkColors = storage.getModeAppearanceColors('dark');
+          return { lightColors, darkColors };
+        } finally {
+          keys.forEach((k) => {
+            if (snapshot[k] === null) localStorage.removeItem(k);
+            else localStorage.setItem(k, snapshot[k]);
+          });
+        }
+      },
+      {
+        migratedKey: STORAGE_APPEARANCE_MIGRATED_KEY,
+        themeKey: STORAGE_THEME_KEY,
+        legacyHeaderKey: STORAGE_HEADER_BG_COLOR_KEY,
+        legacyChatKey: STORAGE_CHAT_BG_COLOR_KEY,
+        legacyBubbleKey: STORAGE_BUBBLE_BG_COLOR_KEY,
+        lightHeaderKey: STORAGE_LIGHT_HEADER_BG_COLOR_KEY,
+        lightChatKey: STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+        lightBubbleKey: STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY,
+        darkHeaderKey: STORAGE_DARK_HEADER_BG_COLOR_KEY,
+        darkChatKey: STORAGE_DARK_CHAT_BG_COLOR_KEY,
+        darkBubbleKey: STORAGE_DARK_BUBBLE_BG_COLOR_KEY
+      }
+    );
+
+    expect(migrationCheck.lightColors.chatBgColor).toBe('#e5eddf');
+    expect(migrationCheck.darkColors.chatBgColor).toBe('#0f1723');
+    expect(migrationCheck.darkColors.bubbleBgColor).toBe('#172332');
   });
 
   test('4. Cached feed rendering, Ticker highlighting & Mark All Read', async () => {
@@ -591,25 +764,48 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     const exportedJson = JSON.parse(fs.readFileSync(exportFilePath, 'utf8'));
     expect(exportedJson.app).toBe('TheySay');
     expect(exportedJson.settings.gridPreset).toBe('2x2');
+    expect(exportedJson.settings.theme).toBe('dark');
     expect(exportedJson.settings.headerBgColor).toBe('#2563eb');
-    expect(exportedJson.settings.chatBgColor).toBe('#eef2f6');
-    expect(exportedJson.settings.bubbleBgColor).toBe('#f1f4f9');
+    expect(exportedJson.settings.chatBgColor).toBe('#131722');
+    expect(exportedJson.settings.bubbleBgColor).toBe('#1e222d');
+    expect(exportedJson.settings.appearance.light.chatBgColor).toBe('#e7efe4');
+    expect(exportedJson.settings.appearance.dark.chatBgColor).toBe('#131722');
+    expect(exportedJson.settings.appearance.dark.bubbleBgColor).toBe('#1e222d');
+    expect(exportedJson.settings.appearance.dark.headerBgColor).toBe('#2563eb');
     expect(exportedJson.settings.appBadgeEnabled).toBe(true);
     expect(exportedJson.handles[0]).toBe('elonmusk');
 
-    // Mutate current state to 3x2 layout and different theme before importing back
+    // Mutate current state to 3x2 layout and light theme before importing back
     await selectGridLayout(page, '3x2');
+    await page.locator('#btn-theme-toggle').click();
     await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '3x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(6);
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe('light');
 
     // Trigger Import Profile from Login dropdown menu
     await page.locator('#btn-login-menu').click();
     await page.locator('#item-import-profile').click();
 
-    // Verify state is restored to exported 2x2 preset and cached posts remain intact
+    // Verify state is restored to exported 2x2 preset, dark theme + both light/dark palettes, and cached posts remain intact
     await expect(page.locator('#layout-select')).toHaveAttribute('data-value', '2x2');
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
     await expect(page.locator('#author-name-0')).toHaveText('Elon Musk');
+    const restoredThemeState = await page.evaluate(
+      ({ lightChatKey, darkChatKey }) => ({
+        theme: document.documentElement.getAttribute('data-theme'),
+        cssChatBg: document.documentElement.style.getPropertyValue('--bg-card'),
+        lightChat: localStorage.getItem(lightChatKey),
+        darkChat: localStorage.getItem(darkChatKey)
+      }),
+      {
+        lightChatKey: STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+        darkChatKey: STORAGE_DARK_CHAT_BG_COLOR_KEY
+      }
+    );
+    expect(restoredThemeState.theme).toBe('dark');
+    expect(restoredThemeState.cssChatBg).toBe('#131722');
+    expect(restoredThemeState.lightChat).toBe('#e7efe4');
+    expect(restoredThemeState.darkChat).toBe('#131722');
   });
 
   test('6. Window state persistence (window-state.json) & screenshot capture', async () => {

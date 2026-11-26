@@ -39,6 +39,13 @@ const STORAGE_URL_TITLES_CACHE_KEY = 'theysay_url_titles_cache';
 const STORAGE_HEADER_BG_COLOR_KEY = 'theysay_header_bg_color';
 const STORAGE_CHAT_BG_COLOR_KEY = 'theysay_chat_bg_color';
 const STORAGE_BUBBLE_BG_COLOR_KEY = 'theysay_bubble_bg_color';
+const STORAGE_LIGHT_HEADER_BG_COLOR_KEY = 'theysay_light_header_bg_color';
+const STORAGE_LIGHT_CHAT_BG_COLOR_KEY = 'theysay_light_chat_bg_color';
+const STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY = 'theysay_light_bubble_bg_color';
+const STORAGE_DARK_HEADER_BG_COLOR_KEY = 'theysay_dark_header_bg_color';
+const STORAGE_DARK_CHAT_BG_COLOR_KEY = 'theysay_dark_chat_bg_color';
+const STORAGE_DARK_BUBBLE_BG_COLOR_KEY = 'theysay_dark_bubble_bg_color';
+const STORAGE_APPEARANCE_MIGRATED_KEY = 'theysay_appearance_per_mode_v1';
 const STORAGE_LANGUAGE_KEY = 'theysay_language';
 const STORAGE_FILTER_KEYWORDS_KEY = 'theysay_filter_keywords';
 const STORAGE_AUTO_CHECK_UPDATES_KEY = 'theysay_auto_check_updates';
@@ -65,6 +72,38 @@ const DEFAULT_CHAT_BG_COLOR = '#f8f9fd';
 const DEFAULT_DARK_CHAT_BG_COLOR = '#0f1723';
 const DEFAULT_BUBBLE_BG_COLOR = '#ffffff';
 const DEFAULT_DARK_BUBBLE_BG_COLOR = '#172332';
+
+const DEFAULT_APPEARANCE_BY_MODE = {
+  light: {
+    headerBgColor: DEFAULT_HEADER_BG_COLOR,
+    chatBgColor: DEFAULT_CHAT_BG_COLOR,
+    bubbleBgColor: DEFAULT_BUBBLE_BG_COLOR
+  },
+  dark: {
+    headerBgColor: DEFAULT_DARK_HEADER_BG_COLOR,
+    chatBgColor: DEFAULT_DARK_CHAT_BG_COLOR,
+    bubbleBgColor: DEFAULT_DARK_BUBBLE_BG_COLOR
+  }
+};
+
+const THEME_PALETTE_PRESETS = {
+  light: [
+    { id: 'lightDefault', chatBg: '#f8f9fd', bubbleBg: '#ffffff', headerBg: '#f8f9fd' },
+    { id: 'lightSage', chatBg: '#e7efe4', bubbleBg: '#ffffff', headerBg: '#e7efe4' },
+    { id: 'lightLinen', chatBg: '#f3ede2', bubbleBg: '#fffdf9', headerBg: '#f3ede2' },
+    { id: 'lightMist', chatBg: '#eef2f6', bubbleBg: '#ffffff', headerBg: '#eef2f6' },
+    { id: 'lightMint', chatBg: '#e4f2ec', bubbleBg: '#ffffff', headerBg: '#dff2ea' },
+    { id: 'lightPure', chatBg: '#ffffff', bubbleBg: '#f3f6fa', headerBg: '#ffffff' }
+  ],
+  dark: [
+    { id: 'darkDefault', chatBg: '#0f1723', bubbleBg: '#172332', headerBg: '#0f1723' },
+    { id: 'darkCharcoal', chatBg: '#131722', bubbleBg: '#1e222d', headerBg: '#131722' },
+    { id: 'darkForest', chatBg: '#0f1915', bubbleBg: '#182721', headerBg: '#0f1915' },
+    { id: 'darkDim', chatBg: '#181c24', bubbleBg: '#222834', headerBg: '#181c24' },
+    { id: 'darkWarm', chatBg: '#181513', bubbleBg: '#24201c', headerBg: '#181513' },
+    { id: 'darkOled', chatBg: '#0a0c10', bubbleBg: '#151921', headerBg: '#0a0c10' }
+  ]
+};
 
 const TICKER_COLOR_PRESETS = [
   { id: 'amber', name: '琥珀金', fg: '#fde047', bg: '#422006' },
@@ -227,6 +266,13 @@ module.exports = {
   STORAGE_HEADER_BG_COLOR_KEY,
   STORAGE_CHAT_BG_COLOR_KEY,
   STORAGE_BUBBLE_BG_COLOR_KEY,
+  STORAGE_LIGHT_HEADER_BG_COLOR_KEY,
+  STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+  STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY,
+  STORAGE_DARK_HEADER_BG_COLOR_KEY,
+  STORAGE_DARK_CHAT_BG_COLOR_KEY,
+  STORAGE_DARK_BUBBLE_BG_COLOR_KEY,
+  STORAGE_APPEARANCE_MIGRATED_KEY,
   STORAGE_LANGUAGE_KEY,
   STORAGE_FILTER_KEYWORDS_KEY,
   STORAGE_AUTO_CHECK_UPDATES_KEY,
@@ -248,6 +294,8 @@ module.exports = {
   DEFAULT_DARK_CHAT_BG_COLOR,
   DEFAULT_BUBBLE_BG_COLOR,
   DEFAULT_DARK_BUBBLE_BG_COLOR,
+  DEFAULT_APPEARANCE_BY_MODE,
+  THEME_PALETTE_PRESETS,
   TICKER_COLOR_PRESETS,
   HEADER_COLOR_PRESETS,
   BACKGROUND_FETCH_INTERVAL_MS,

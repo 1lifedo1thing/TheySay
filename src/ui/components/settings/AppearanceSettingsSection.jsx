@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Paper,
   ColorSwatch,
   Button,
   TextInput,
-  ThemeIcon
+  ThemeIcon,
+  SegmentedControl,
+  Badge
 } from '@mantine/core';
 import {
   IconLayoutNavbar,
@@ -13,19 +15,42 @@ import {
   IconInfoCircle,
   IconBellOff,
   IconRefresh,
-  IconBrandX
+  IconBrandX,
+  IconSun,
+  IconMoon,
+  IconDeviceDesktop,
+  IconSparkles
 } from '@tabler/icons-react';
 import {
-  HEADER_PRESETS,
-  CHAT_BG_PRESETS,
-  BUBBLE_BG_PRESETS,
+  THEME_PALETTES_BY_MODE,
+  HEADER_PRESETS_BY_MODE,
+  CHAT_BG_PRESETS_BY_MODE,
+  BUBBLE_BG_PRESETS_BY_MODE,
   TICKER_PRESETS
 } from '../theme';
+import { t } from '../../../core/i18n';
 
 const HEX_INPUT_CLASS_NAMES = {
   root: 'mantine-ticker-hex-root',
   input: 'ticker-hex-input'
 };
+
+function readDomThemeState() {
+  if (typeof document === 'undefined' || !document.documentElement) {
+    return { effectiveTheme: 'light', themePreference: 'light', lang: 'zh' };
+  }
+  const root = document.documentElement;
+  const effectiveTheme = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const rawPref = root.getAttribute('data-theme-preference');
+  const themePreference =
+    rawPref === 'dark' || rawPref === 'light' || rawPref === 'system'
+      ? rawPref
+      : effectiveTheme;
+  const lang = (root.getAttribute('lang') || 'zh').toLowerCase().startsWith('en')
+    ? 'en'
+    : 'zh';
+  return { effectiveTheme, themePreference, lang };
+}
 
 function ColorField({
   labelI18n,
@@ -67,16 +92,238 @@ function ColorField({
 }
 
 export function AppearanceSettingsSection() {
+  const [domState, setDomState] = useState(readDomThemeState);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const sync = () => setDomState(readDomThemeState());
+    sync();
+
+    let observer = null;
+    if (typeof MutationObserver !== 'undefined') {
+      observer = new MutationObserver(sync);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme', 'data-theme-preference', 'lang']
+      });
+    }
+    window.addEventListener('theysay:theme-changed', sync);
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener('theysay:theme-changed', sync);
+    };
+  }, []);
+
+  const { effectiveTheme, themePreference, lang } = domState;
+  const isDark = effectiveTheme === 'dark';
+  const isEn = lang === 'en';
+
+  const modePalettes = THEME_PALETTES_BY_MODE[effectiveTheme] || THEME_PALETTES_BY_MODE.light;
+  const chatBgPresets = CHAT_BG_PRESETS_BY_MODE[effectiveTheme] || CHAT_BG_PRESETS_BY_MODE.light;
+  const bubbleBgPresets = BUBBLE_BG_PRESETS_BY_MODE[effectiveTheme] || BUBBLE_BG_PRESETS_BY_MODE.light;
+  const headerPresets = HEADER_PRESETS_BY_MODE[effectiveTheme] || HEADER_PRESETS_BY_MODE.light;
+
+  const handleThemeModeChange = (nextMode) => {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.__THEYSAY_ON_THEME_MODE_CHANGE === 'function'
+    ) {
+      window.__THEYSAY_ON_THEME_MODE_CHANGE(nextMode);
+    }
+  };
+
+  const handlePaletteSelect = (paletteId) => {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.__THEYSAY_ON_THEME_PALETTE_SELECT === 'function'
+    ) {
+      window.__THEYSAY_ON_THEME_PALETTE_SELECT(paletteId);
+    }
+  };
+
+  const modeBadgeLabel = isDark
+    ? isEn
+      ? 'Dark Mode'
+      : '深色模式'
+    : isEn
+      ? 'Light Mode'
+      : '浅色模式';
+
+  const paletteSubtitleText = isDark
+    ? isEn
+      ? 'Editing Dark Mode palette'
+      : '当前正在编辑：深色模式配色'
+    : isEn
+      ? 'Editing Light Mode palette'
+      : '当前正在编辑：浅色模式配色';
+
   return (
     <div className="settings-section">
-      <div
-        className="settings-section-title"
-        data-i18n="settings.sectionAppearance"
-      >
-        外观
+      <div className="settings-section-header-row">
+        <div
+          className="settings-section-title"
+          data-i18n="settings.sectionAppearance"
+        >
+          外观
+        </div>
+        <Badge
+          id="setting-appearance-mode-badge"
+          size="xs"
+          variant="light"
+          color={isDark ? 'indigo' : 'blue'}
+          radius="xl"
+          className="appearance-mode-badge"
+        >
+          {modeBadgeLabel}
+        </Badge>
       </div>
       <Paper className="settings-group" radius="md" withBorder={false}>
-        {/* 聊天背景配色 (Mantine ColorSwatch) */}
+        {/* 主题模式 (浅色 / 深色 / 跟随系统) */}
+        <div className="settings-row">
+          <div className="settings-row-main">
+            <ThemeIcon
+              variant="light"
+              color={isDark ? 'indigo' : 'yellow'}
+              size={28}
+              radius="md"
+              className="platform-icon theme-mode-icon"
+            >
+              {themePreference === 'system' ? (
+                <IconDeviceDesktop size={14} stroke={2.1} />
+              ) : isDark ? (
+                <IconMoon size={14} stroke={2.1} />
+              ) : (
+                <IconSun size={14} stroke={2.1} />
+              )}
+            </ThemeIcon>
+            <div className="settings-row-text">
+              <div
+                className="settings-row-title"
+                data-i18n="settings.themeModeLabel"
+              >
+                主题模式
+              </div>
+              <div
+                className="settings-row-subtitle"
+                data-i18n="settings.themeModeSubtitle"
+              >
+                浅色与深色模式各自独立保存配色
+              </div>
+            </div>
+          </div>
+          <SegmentedControl
+            id="setting-theme-mode"
+            size="xs"
+            radius="md"
+            value={themePreference}
+            onChange={handleThemeModeChange}
+            className="theme-mode-segmented"
+            data={[
+              {
+                value: 'light',
+                label: (
+                  <span className="theme-mode-segment-label" data-theme-option="light">
+                    <IconSun size={12.5} stroke={2.1} />
+                    <span>{isEn ? 'Light' : '浅色'}</span>
+                  </span>
+                )
+              },
+              {
+                value: 'dark',
+                label: (
+                  <span className="theme-mode-segment-label" data-theme-option="dark">
+                    <IconMoon size={12.5} stroke={2.1} />
+                    <span>{isEn ? 'Dark' : '深色'}</span>
+                  </span>
+                )
+              },
+              {
+                value: 'system',
+                label: (
+                  <span className="theme-mode-segment-label" data-theme-option="system">
+                    <IconDeviceDesktop size={12.5} stroke={2.1} />
+                    <span>{isEn ? 'System' : '跟随系统'}</span>
+                  </span>
+                )
+              }
+            ]}
+          />
+        </div>
+
+        {/* 推荐主题方案 (按当前浅/深色模式展示成套配色包) */}
+        <div className="settings-row settings-row-block settings-row-palettes">
+          <div className="settings-row-main">
+            <ThemeIcon
+              variant="light"
+              color="violet"
+              size={28}
+              radius="md"
+              className="platform-icon palette-pack-theme"
+            >
+              <IconSparkles size={14} stroke={2.1} />
+            </ThemeIcon>
+            <div className="settings-row-text">
+              <div
+                className="settings-row-title"
+                data-i18n="settings.themePaletteLabel"
+              >
+                主题配色方案
+              </div>
+              <div
+                id="setting-theme-palette-subtitle"
+                className="settings-row-subtitle"
+              >
+                {paletteSubtitleText}
+              </div>
+            </div>
+          </div>
+          <div
+            id="setting-theme-palettes"
+            className="theme-palette-grid"
+            data-mode={effectiveTheme}
+          >
+            {modePalettes.map((pack) => {
+              const label = t(`settings.palette.${pack.id}`, {}, lang);
+              return (
+                <button
+                  key={pack.id}
+                  type="button"
+                  className="theme-palette-card"
+                  data-palette-id={pack.id}
+                  data-chat-bg={pack.chatBg}
+                  data-bubble-bg={pack.bubbleBg}
+                  data-header-bg={pack.headerBg}
+                  title={`${label} (${pack.chatBg} / ${pack.bubbleBg})`}
+                  aria-label={label}
+                  onClick={() => handlePaletteSelect(pack.id)}
+                >
+                  <span
+                    className="theme-palette-swatch"
+                    style={{ backgroundColor: pack.chatBg }}
+                  >
+                    <span
+                      className="theme-palette-swatch-bar"
+                      style={{ backgroundColor: pack.headerBg }}
+                    />
+                    <span className="theme-palette-swatch-bubbles">
+                      <span
+                        className="theme-palette-swatch-bubble is-wide"
+                        style={{ backgroundColor: pack.bubbleBg }}
+                      />
+                      <span
+                        className="theme-palette-swatch-bubble is-short"
+                        style={{ backgroundColor: pack.bubbleBg }}
+                      />
+                    </span>
+                  </span>
+                  <span className="theme-palette-name">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 聊天背景配色 (Mantine ColorSwatch，按当前模式展示对应色板) */}
         <div className="settings-row">
           <div className="settings-row-main">
             <ThemeIcon
@@ -104,10 +351,14 @@ export function AppearanceSettingsSection() {
             </div>
           </div>
           <div className="settings-color-inline-group">
-            <div id="setting-chat-bg-presets" className="ticker-preset-list">
-              {CHAT_BG_PRESETS.map((bg) => (
+            <div
+              id="setting-chat-bg-presets"
+              className="ticker-preset-list"
+              data-mode={effectiveTheme}
+            >
+              {chatBgPresets.map((bg) => (
                 <ColorSwatch
-                  key={bg}
+                  key={`${effectiveTheme}-${bg}`}
                   component="button"
                   type="button"
                   color={bg}
@@ -129,7 +380,7 @@ export function AppearanceSettingsSection() {
                 labelText="自定义"
                 colorId="setting-chat-bg-color"
                 hexId="setting-chat-bg-hex"
-                defaultValue="#f8f9fd"
+                defaultValue={isDark ? '#0f1723' : '#f8f9fd'}
                 titleI18n="settings.chatBgColorInputTitle"
                 titleText="自定义聊天背景颜色"
                 ariaI18n="settings.chatBgColorHexAria"
@@ -139,7 +390,7 @@ export function AppearanceSettingsSection() {
           </div>
         </div>
 
-        {/* 消息气泡配色 (Mantine ColorSwatch) */}
+        {/* 消息气泡配色 (Mantine ColorSwatch，按当前模式展示对应色板) */}
         <div className="settings-row">
           <div className="settings-row-main">
             <ThemeIcon
@@ -167,10 +418,14 @@ export function AppearanceSettingsSection() {
             </div>
           </div>
           <div className="settings-color-inline-group">
-            <div id="setting-bubble-bg-presets" className="ticker-preset-list">
-              {BUBBLE_BG_PRESETS.map((bg) => (
+            <div
+              id="setting-bubble-bg-presets"
+              className="ticker-preset-list"
+              data-mode={effectiveTheme}
+            >
+              {bubbleBgPresets.map((bg) => (
                 <ColorSwatch
-                  key={bg}
+                  key={`${effectiveTheme}-${bg}`}
                   component="button"
                   type="button"
                   color={bg}
@@ -192,7 +447,7 @@ export function AppearanceSettingsSection() {
                 labelText="自定义"
                 colorId="setting-bubble-bg-color"
                 hexId="setting-bubble-bg-hex"
-                defaultValue="#ffffff"
+                defaultValue={isDark ? '#172332' : '#ffffff'}
                 titleI18n="settings.bubbleBgColorInputTitle"
                 titleText="自定义消息气泡颜色"
                 ariaI18n="settings.bubbleBgColorHexAria"
@@ -202,7 +457,7 @@ export function AppearanceSettingsSection() {
           </div>
         </div>
 
-        {/* Title 栏背景配色 (Mantine ColorSwatch) */}
+        {/* Title 栏背景配色 (Mantine ColorSwatch，按当前模式展示对应色板) */}
         <div className="settings-row">
           <div className="settings-row-main">
             <ThemeIcon
@@ -230,10 +485,14 @@ export function AppearanceSettingsSection() {
             </div>
           </div>
           <div className="settings-color-inline-group">
-            <div id="setting-header-presets" className="ticker-preset-list">
-              {HEADER_PRESETS.map((bg) => (
+            <div
+              id="setting-header-presets"
+              className="ticker-preset-list"
+              data-mode={effectiveTheme}
+            >
+              {headerPresets.map((bg) => (
                 <ColorSwatch
-                  key={bg}
+                  key={`${effectiveTheme}-${bg}`}
                   component="button"
                   type="button"
                   color={bg}
@@ -255,7 +514,7 @@ export function AppearanceSettingsSection() {
                 labelText="自定义"
                 colorId="setting-header-bg-color"
                 hexId="setting-header-bg-hex"
-                defaultValue="#f8f9fd"
+                defaultValue={isDark ? '#0f1723' : '#f8f9fd'}
                 titleI18n="settings.headerColorInputTitle"
                 titleText="自定义 Title 栏背景颜色"
                 ariaI18n="settings.headerColorHexAria"

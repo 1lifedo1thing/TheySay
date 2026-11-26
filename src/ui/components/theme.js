@@ -1,4 +1,5 @@
 import { createTheme } from '@mantine/core';
+import { THEME_PALETTE_PRESETS } from '../../core/constants';
 
 export const mantineTheme = createTheme({
   primaryColor: 'brand',
@@ -67,36 +68,76 @@ export const mantineTheme = createTheme({
   }
 });
 
-export const HEADER_PRESETS = [
-  '#f8f9fd',
-  '#ffffff',
-  '#1e293b',
-  '#2563eb',
-  '#f3ede2',
-  '#dff2ea',
-  '#eae6f9',
-  '#faeed4'
-];
+export const THEME_PALETTES_BY_MODE = THEME_PALETTE_PRESETS;
 
-export const CHAT_BG_PRESETS = [
-  '#f8f9fd',
-  '#ffffff',
-  '#eef2f6',
-  '#f3ede2',
-  '#e8f3ee',
-  '#0f1723',
-  '#131722'
-];
+export const CHAT_BG_PRESETS_BY_MODE = {
+  light: [
+    '#f8f9fd',
+    '#ffffff',
+    '#eef2f6',
+    '#e7efe4',
+    '#f3ede2',
+    '#e4f2ec',
+    '#eef0fb'
+  ],
+  dark: [
+    '#0f1723',
+    '#131722',
+    '#0f1915',
+    '#181c24',
+    '#181513',
+    '#0a0c10',
+    '#161421'
+  ]
+};
 
-export const BUBBLE_BG_PRESETS = [
-  '#ffffff',
-  '#f1f4f9',
-  '#fef9e7',
-  '#ecf7f1',
-  '#f3effb',
-  '#172332',
-  '#1e222d'
-];
+export const BUBBLE_BG_PRESETS_BY_MODE = {
+  light: [
+    '#ffffff',
+    '#f3f6fa',
+    '#f1f4f9',
+    '#fffdf9',
+    '#fef9e7',
+    '#ecf7f1',
+    '#f3effb'
+  ],
+  dark: [
+    '#172332',
+    '#1e222d',
+    '#182721',
+    '#222834',
+    '#24201c',
+    '#151921',
+    '#221e33'
+  ]
+};
+
+export const HEADER_PRESETS_BY_MODE = {
+  light: [
+    '#f8f9fd',
+    '#ffffff',
+    '#e7efe4',
+    '#f3ede2',
+    '#dff2ea',
+    '#eae6f9',
+    '#2563eb',
+    '#1e293b'
+  ],
+  dark: [
+    '#0f1723',
+    '#131722',
+    '#0f1915',
+    '#181c24',
+    '#1e293b',
+    '#0a0c10',
+    '#2563eb',
+    '#1d3557'
+  ]
+};
+
+export const HEADER_PRESETS = HEADER_PRESETS_BY_MODE.light;
+export const CHAT_BG_PRESETS = CHAT_BG_PRESETS_BY_MODE.light;
+export const BUBBLE_BG_PRESETS = BUBBLE_BG_PRESETS_BY_MODE.light;
 
 export const TICKER_PRESETS = [
   { fg: '#fde047', bg: '#422006' },

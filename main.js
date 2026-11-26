@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification, screen, dialog, nativeTheme } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const Store = require('electron-store');
@@ -166,6 +166,49 @@ function saveLanguagePreference(lang) {
   }
 }
 
+function normalizeThemePreference(pref) {
+  const v = String(pref || '').trim().toLowerCase();
+  if (v === 'dark' || v === 'light' || v === 'system') return v;
+  return 'light';
+}
+
+function loadSavedThemePreference() {
+  try {
+    const saved = preferencesStore.get('themePreference');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') {
+      return saved;
+    }
+  } catch (_) {}
+  return 'light';
+}
+
+function getWindowCanvasColor() {
+  return nativeTheme.shouldUseDarkColors ? '#090d14' : '#e0e3eb';
+}
+
+function applyNativeThemePreference(pref, { persist = true } = {}) {
+  const normalized = normalizeThemePreference(pref);
+  try {
+    nativeTheme.themeSource = normalized;
+  } catch (_) {}
+  if (persist) {
+    try {
+      preferencesStore.set('themePreference', normalized);
+    } catch (err) {
+      console.warn('[Preferences] Failed to save theme preference:', err.message);
+    }
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.setBackgroundColor(getWindowCanvasColor());
+    } catch (_) {}
+  }
+  return {
+    themeSource: nativeTheme.themeSource,
+    shouldUseDarkColors: nativeTheme.shouldUseDarkColors
+  };
+}
+
 function getDefaultWindowState() {
   let width = DEFAULT_WINDOW_WIDTH;
   let height = DEFAULT_WINDOW_HEIGHT;
@@ -329,7 +372,7 @@ function createWindow() {
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     center: !(typeof windowState.x === 'number' && typeof windowState.y === 'number'),
-    backgroundColor: '#f8f9fd',
+    backgroundColor: getWindowCanvasColor(),
     show: !IS_BACKGROUND_TEST,
     paintWhenInitiallyHidden: true,
     title: t('app.mainWindowTitle'),
@@ -1789,6 +1832,31 @@ ipcMain.on('edit-redo', (event) => {
   }
 });
 
+
+ipcMain.on('get-native-theme-sync', (event) => {
+  event.returnValue = {
+    themeSource: nativeTheme.themeSource,
+    shouldUseDarkColors: nativeTheme.shouldUseDarkColors
+  };
+});
+
+ipcMain.on('set-theme-preference-sync', (event, payload) => {
+  const pref = payload && typeof payload === 'object' ? payload.preference : payload;
+  const persist = payload && typeof payload === 'object' ? payload.persist !== false : true;
+  event.returnValue = applyNativeThemePreference(pref, { persist });
+});
+
+ipcMain.on('set-theme-preference', (event, payload) => {
+  const pref = payload && typeof payload === 'object' ? payload.preference : payload;
+  const persist = payload && typeof payload === 'object' ? payload.persist !== false : true;
+  applyNativeThemePreference(pref, { persist });
+});
+
+ipcMain.handle('get-native-theme-state', () => ({
+  themeSource: nativeTheme.themeSource,
+  shouldUseDarkColors: nativeTheme.shouldUseDarkColors
+}));
+
 ipcMain.on('set-app-badge', (event, count) => {
   applyAppBadgeCount(Number(count) || 0);
 });
@@ -2055,6 +2123,19 @@ app.whenReady().then(() => {
     process.env.THEYSAY_SAVED_LANGUAGE = savedLangPref;
     setActiveLanguageOverride(savedLangPref);
   }
+
+  applyNativeThemePreference(loadSavedThemePreference(), { persist: false });
+  nativeTheme.on('updated', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.setBackgroundColor(getWindowCanvasColor());
+        mainWindow.webContents.send('system-theme-updated', {
+          themeSource: nativeTheme.themeSource,
+          shouldUseDarkColors: nativeTheme.shouldUseDarkColors
+        });
+      } catch (_) {}
+    }
+  });
 
   getHistoryDb();
   createWindow();

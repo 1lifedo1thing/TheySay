@@ -33,6 +33,13 @@ const {
   STORAGE_HEADER_BG_COLOR_KEY,
   STORAGE_CHAT_BG_COLOR_KEY,
   STORAGE_BUBBLE_BG_COLOR_KEY,
+  STORAGE_LIGHT_HEADER_BG_COLOR_KEY,
+  STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+  STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY,
+  STORAGE_DARK_HEADER_BG_COLOR_KEY,
+  STORAGE_DARK_CHAT_BG_COLOR_KEY,
+  STORAGE_DARK_BUBBLE_BG_COLOR_KEY,
+  STORAGE_APPEARANCE_MIGRATED_KEY,
   STORAGE_LANGUAGE_KEY,
   STORAGE_FILTER_KEYWORDS_KEY,
   STORAGE_AUTO_CHECK_UPDATES_KEY,
@@ -609,8 +616,55 @@ function saveGridLayout(grid) {
 const getStoredPreset = () => readStorage(STORAGE_PRESET_KEY) || '2x2';
 const saveStoredPreset = (preset) => writeStorage(STORAGE_PRESET_KEY, preset);
 
-const getStoredTheme = () => readStorage(STORAGE_THEME_KEY) || 'light';
-const saveStoredTheme = (theme) => writeStorage(STORAGE_THEME_KEY, theme);
+function normalizeThemePreference(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'dark' || v === 'light' || v === 'system') return v;
+  return 'light';
+}
+
+function detectSystemDarkPreference() {
+  try {
+    const electron = require('electron');
+    const ipcRenderer = electron && electron.ipcRenderer;
+    if (ipcRenderer && typeof ipcRenderer.sendSync === 'function') {
+      const state = ipcRenderer.sendSync('get-native-theme-sync');
+      if (state && typeof state.shouldUseDarkColors === 'boolean') {
+        if (state.themeSource === 'system') {
+          return state.shouldUseDarkColors;
+        }
+      }
+    }
+  } catch (_) {}
+  try {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      return Boolean(window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+  } catch (_) {}
+  return false;
+}
+
+function resolveEffectiveTheme(preference = getStoredTheme(), { systemIsDark = null } = {}) {
+  const pref = normalizeThemePreference(preference);
+  if (pref === 'dark') return 'dark';
+  if (pref === 'light') return 'light';
+  const isDark = typeof systemIsDark === 'boolean' ? systemIsDark : detectSystemDarkPreference();
+  return isDark ? 'dark' : 'light';
+}
+
+const getStoredTheme = () => normalizeThemePreference(readStorage(STORAGE_THEME_KEY) || 'light');
+const saveStoredTheme = (theme) => writeStorage(STORAGE_THEME_KEY, normalizeThemePreference(theme));
+const getEffectiveTheme = () => {
+  if (typeof document !== 'undefined' && document.documentElement) {
+    const domTheme = document.documentElement.getAttribute('data-theme');
+    if (domTheme === 'dark' || domTheme === 'light') {
+      const storedPref = getStoredTheme();
+      if (storedPref === 'system' || storedPref === domTheme) {
+        return domTheme;
+      }
+    }
+  }
+  return resolveEffectiveTheme(getStoredTheme());
+};
 
 const getLastFetchTime = () => readStorage(STORAGE_LAST_FETCH_KEY);
 const saveLastFetchTime = (timestamp) => writeStorage(STORAGE_LAST_FETCH_KEY, timestamp);
@@ -723,55 +777,186 @@ const [getTickerBgColor, saveTickerBgColor] = createColorStorage(
   STORAGE_TICKER_BG_COLOR_KEY,
   DEFAULT_TICKER_BG_COLOR
 );
-function getHeaderBgColor() {
-  const raw = (readStorage(STORAGE_HEADER_BG_COLOR_KEY) || '').trim();
-  const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    return parsed.toHex();
+const MODE_COLOR_STORAGE_MAP = {
+  light: {
+    header: {
+      key: STORAGE_LIGHT_HEADER_BG_COLOR_KEY,
+      legacyKey: STORAGE_HEADER_BG_COLOR_KEY,
+      defaultVal: DEFAULT_HEADER_BG_COLOR
+    },
+    chat: {
+      key: STORAGE_LIGHT_CHAT_BG_COLOR_KEY,
+      legacyKey: STORAGE_CHAT_BG_COLOR_KEY,
+      defaultVal: DEFAULT_CHAT_BG_COLOR
+    },
+    bubble: {
+      key: STORAGE_LIGHT_BUBBLE_BG_COLOR_KEY,
+      legacyKey: STORAGE_BUBBLE_BG_COLOR_KEY,
+      defaultVal: DEFAULT_BUBBLE_BG_COLOR
+    }
+  },
+  dark: {
+    header: {
+      key: STORAGE_DARK_HEADER_BG_COLOR_KEY,
+      legacyKey: STORAGE_HEADER_BG_COLOR_KEY,
+      defaultVal: DEFAULT_DARK_HEADER_BG_COLOR
+    },
+    chat: {
+      key: STORAGE_DARK_CHAT_BG_COLOR_KEY,
+      legacyKey: STORAGE_CHAT_BG_COLOR_KEY,
+      defaultVal: DEFAULT_DARK_CHAT_BG_COLOR
+    },
+    bubble: {
+      key: STORAGE_DARK_BUBBLE_BG_COLOR_KEY,
+      legacyKey: STORAGE_BUBBLE_BG_COLOR_KEY,
+      defaultVal: DEFAULT_DARK_BUBBLE_BG_COLOR
+    }
   }
-  return getStoredTheme() === 'light' ? DEFAULT_HEADER_BG_COLOR : DEFAULT_DARK_HEADER_BG_COLOR;
-}
+};
 
-function saveHeaderBgColor(color) {
+function normalizeValidHex(color) {
   const raw = String(color || '').trim();
   const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    writeStorage(STORAGE_HEADER_BG_COLOR_KEY, parsed.toHex());
+  return parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw) ? parsed.toHex() : null;
+}
+
+function normalizeAppearanceMode(mode) {
+  if (mode === 'dark') return 'dark';
+  if (mode === 'light') return 'light';
+  return getEffectiveTheme();
+}
+
+function migrateLegacyAppearanceColorsIfNeeded() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (readStorage(STORAGE_APPEARANCE_MIGRATED_KEY) === '1') return;
+
+    const legacyHeader = normalizeValidHex(readStorage(STORAGE_HEADER_BG_COLOR_KEY));
+    const legacyChat = normalizeValidHex(readStorage(STORAGE_CHAT_BG_COLOR_KEY));
+    const legacyBubble = normalizeValidHex(readStorage(STORAGE_BUBBLE_BG_COLOR_KEY));
+    const effectiveMode = resolveEffectiveTheme(getStoredTheme());
+
+    if (legacyChat) {
+      const targetMode = colord(legacyChat).brightness() < 0.55 ? 'dark' : 'light';
+      const slotKey = MODE_COLOR_STORAGE_MAP[targetMode].chat.key;
+      if (!normalizeValidHex(readStorage(slotKey))) {
+        writeStorage(slotKey, legacyChat);
+      }
+    }
+
+    if (legacyBubble) {
+      const targetMode = colord(legacyBubble).brightness() < 0.55 ? 'dark' : 'light';
+      const slotKey = MODE_COLOR_STORAGE_MAP[targetMode].bubble.key;
+      if (!normalizeValidHex(readStorage(slotKey))) {
+        writeStorage(slotKey, legacyBubble);
+      }
+    }
+
+    if (legacyHeader) {
+      let targetMode;
+      if (legacyHeader === DEFAULT_HEADER_BG_COLOR) {
+        targetMode = 'light';
+      } else if (legacyHeader === DEFAULT_DARK_HEADER_BG_COLOR) {
+        targetMode = 'dark';
+      } else {
+        const headerIsDark = colord(legacyHeader).brightness() < 0.55;
+        const chatIsLight = legacyChat
+          ? colord(legacyChat).brightness() >= 0.55
+          : effectiveMode === 'light';
+        targetMode = headerIsDark && !(effectiveMode === 'light' && chatIsLight) ? 'dark' : 'light';
+      }
+      const slotKey = MODE_COLOR_STORAGE_MAP[targetMode].header.key;
+      if (!normalizeValidHex(readStorage(slotKey))) {
+        writeStorage(slotKey, legacyHeader);
+      }
+    }
+
+    writeStorage(STORAGE_APPEARANCE_MIGRATED_KEY, '1');
+  } catch (_) {}
+}
+
+function getModeColor(slot, mode) {
+  migrateLegacyAppearanceColorsIfNeeded();
+  const resolvedMode = normalizeAppearanceMode(mode);
+  const cfg = MODE_COLOR_STORAGE_MAP[resolvedMode][slot];
+  const stored = normalizeValidHex(readStorage(cfg.key));
+  return stored || cfg.defaultVal;
+}
+
+function saveModeColor(slot, color, mode) {
+  migrateLegacyAppearanceColorsIfNeeded();
+  const hex = normalizeValidHex(color);
+  if (!hex) return;
+  const resolvedMode = normalizeAppearanceMode(mode);
+  const cfg = MODE_COLOR_STORAGE_MAP[resolvedMode][slot];
+  writeStorage(cfg.key, hex);
+  if (resolvedMode === getEffectiveTheme()) {
+    writeStorage(cfg.legacyKey, hex);
   }
 }
 
-function getChatBgColor() {
-  const raw = (readStorage(STORAGE_CHAT_BG_COLOR_KEY) || '').trim();
-  const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    return parsed.toHex();
-  }
-  return getStoredTheme() === 'light' ? DEFAULT_CHAT_BG_COLOR : DEFAULT_DARK_CHAT_BG_COLOR;
+function syncLegacyAppearanceKeysForMode(mode) {
+  migrateLegacyAppearanceColorsIfNeeded();
+  const resolvedMode = normalizeAppearanceMode(mode);
+  const map = MODE_COLOR_STORAGE_MAP[resolvedMode];
+  writeStorage(map.header.legacyKey, getModeColor('header', resolvedMode));
+  writeStorage(map.chat.legacyKey, getModeColor('chat', resolvedMode));
+  writeStorage(map.bubble.legacyKey, getModeColor('bubble', resolvedMode));
 }
 
-function saveChatBgColor(color) {
-  const raw = String(color || '').trim();
-  const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    writeStorage(STORAGE_CHAT_BG_COLOR_KEY, parsed.toHex());
-  }
+function getModeAppearanceColors(mode) {
+  const resolvedMode = normalizeAppearanceMode(mode);
+  return {
+    headerBgColor: getModeColor('header', resolvedMode),
+    chatBgColor: getModeColor('chat', resolvedMode),
+    bubbleBgColor: getModeColor('bubble', resolvedMode)
+  };
 }
 
-function getBubbleBgColor() {
-  const raw = (readStorage(STORAGE_BUBBLE_BG_COLOR_KEY) || '').trim();
-  const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    return parsed.toHex();
-  }
-  return getStoredTheme() === 'light' ? DEFAULT_BUBBLE_BG_COLOR : DEFAULT_DARK_BUBBLE_BG_COLOR;
+function saveModeAppearanceColors(colors, mode) {
+  if (!colors || typeof colors !== 'object') return;
+  const resolvedMode = normalizeAppearanceMode(mode);
+  if (colors.headerBgColor) saveModeColor('header', colors.headerBgColor, resolvedMode);
+  if (colors.chatBgColor) saveModeColor('chat', colors.chatBgColor, resolvedMode);
+  if (colors.bubbleBgColor) saveModeColor('bubble', colors.bubbleBgColor, resolvedMode);
 }
 
-function saveBubbleBgColor(color) {
-  const raw = String(color || '').trim();
-  const parsed = raw ? colord(raw) : null;
-  if (parsed && parsed.isValid() && /^#[0-9a-f]{6}$/i.test(raw)) {
-    writeStorage(STORAGE_BUBBLE_BG_COLOR_KEY, parsed.toHex());
-  }
+function resetAllAppearanceColors() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      Object.values(MODE_COLOR_STORAGE_MAP).forEach((modeMap) => {
+        Object.values(modeMap).forEach((cfg) => {
+          localStorage.removeItem(cfg.key);
+        });
+      });
+      writeStorage(STORAGE_APPEARANCE_MIGRATED_KEY, '1');
+    }
+  } catch (_) {}
+  syncLegacyAppearanceKeysForMode(getEffectiveTheme());
+}
+
+function getHeaderBgColor(mode) {
+  return getModeColor('header', mode);
+}
+
+function saveHeaderBgColor(color, mode) {
+  saveModeColor('header', color, mode);
+}
+
+function getChatBgColor(mode) {
+  return getModeColor('chat', mode);
+}
+
+function saveChatBgColor(color, mode) {
+  saveModeColor('chat', color, mode);
+}
+
+function getBubbleBgColor(mode) {
+  return getModeColor('bubble', mode);
+}
+
+function saveBubbleBgColor(color, mode) {
+  saveModeColor('bubble', color, mode);
 }
 
 function getTickerRemoteCache() {
@@ -969,9 +1154,47 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
     }
   }
 
+  const resolvedThemePref = normalizeThemePreference(
+    settingsOverrides.theme !== undefined ? settingsOverrides.theme : getStoredTheme()
+  );
+  const activeEffectiveTheme = resolveEffectiveTheme(resolvedThemePref);
+  const lightAppearance = getModeAppearanceColors('light');
+  const darkAppearance = getModeAppearanceColors('dark');
+  const activeAppearance = activeEffectiveTheme === 'dark' ? darkAppearance : lightAppearance;
+  const exportedHeaderBg =
+    settingsOverrides.headerBgColor !== undefined
+      ? settingsOverrides.headerBgColor
+      : activeAppearance.headerBgColor;
+  const exportedChatBg =
+    settingsOverrides.chatBgColor !== undefined
+      ? settingsOverrides.chatBgColor
+      : activeAppearance.chatBgColor;
+  const exportedBubbleBg =
+    settingsOverrides.bubbleBgColor !== undefined
+      ? settingsOverrides.bubbleBgColor
+      : activeAppearance.bubbleBgColor;
+  const exportedAppearance = {
+    light:
+      activeEffectiveTheme === 'light'
+        ? {
+            headerBgColor: exportedHeaderBg,
+            chatBgColor: exportedChatBg,
+            bubbleBgColor: exportedBubbleBg
+          }
+        : lightAppearance,
+    dark:
+      activeEffectiveTheme === 'dark'
+        ? {
+            headerBgColor: exportedHeaderBg,
+            chatBgColor: exportedChatBg,
+            bubbleBgColor: exportedBubbleBg
+          }
+        : darkAppearance
+  };
+
   const settings = {
     language: settingsOverrides.language !== undefined ? settingsOverrides.language : getLanguage(),
-    theme: settingsOverrides.theme !== undefined ? settingsOverrides.theme : getStoredTheme(),
+    theme: resolvedThemePref,
     gridPreset: settingsOverrides.gridPreset !== undefined ? settingsOverrides.gridPreset : getStoredPreset(),
     gridLayout,
     twitterIntervalMinutes: settingsOverrides.twitterIntervalMinutes !== undefined
@@ -998,15 +1221,10 @@ function buildProfileData({ slots = [], grid = null, settingsOverrides = {} } = 
     autoCheckUpdates: settingsOverrides.autoCheckUpdates !== undefined
       ? settingsOverrides.autoCheckUpdates
       : getAutoCheckUpdates(),
-    headerBgColor: settingsOverrides.headerBgColor !== undefined
-      ? settingsOverrides.headerBgColor
-      : getHeaderBgColor(),
-    chatBgColor: settingsOverrides.chatBgColor !== undefined
-      ? settingsOverrides.chatBgColor
-      : getChatBgColor(),
-    bubbleBgColor: settingsOverrides.bubbleBgColor !== undefined
-      ? settingsOverrides.bubbleBgColor
-      : getBubbleBgColor(),
+    headerBgColor: exportedHeaderBg,
+    chatBgColor: exportedChatBg,
+    bubbleBgColor: exportedBubbleBg,
+    appearance: exportedAppearance,
     tickerFgColor: settingsOverrides.tickerFgColor !== undefined
       ? settingsOverrides.tickerFgColor
       : getTickerFgColor(),
@@ -1052,6 +1270,9 @@ module.exports = {
   saveGridLayout,
   getStoredPreset,
   saveStoredPreset,
+  normalizeThemePreference,
+  resolveEffectiveTheme,
+  getEffectiveTheme,
   getStoredTheme,
   saveStoredTheme,
   getLastFetchTime,
@@ -1110,6 +1331,11 @@ module.exports = {
   saveTickerRemoteCache,
   getUrlTitlesCache,
   saveUrlTitlesCache,
+  migrateLegacyAppearanceColorsIfNeeded,
+  syncLegacyAppearanceKeysForMode,
+  getModeAppearanceColors,
+  saveModeAppearanceColors,
+  resetAllAppearanceColors,
   getHeaderBgColor,
   saveHeaderBgColor,
   getChatBgColor,

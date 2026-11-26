@@ -45,25 +45,34 @@ function getThemeIsLight() {
   return document.documentElement.getAttribute('data-theme') !== 'dark';
 }
 
+function getThemePreference() {
+  if (typeof document === 'undefined') return 'light';
+  const pref = document.documentElement.getAttribute('data-theme-preference');
+  if (pref === 'dark' || pref === 'light' || pref === 'system') return pref;
+  return getThemeIsLight() ? 'light' : 'dark';
+}
+
 export function TopNav() {
   const [collapsed, setCollapsed] = useState(readInitialCollapsed);
   const [isEn, setIsEn] = useState(getLangIsEn);
   const [isLight, setIsLight] = useState(getThemeIsLight);
+  const [themePref, setThemePref] = useState(getThemePreference);
 
   useEffect(() => {
     if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
       return undefined;
     }
     const root = document.documentElement;
-    setIsEn(getLangIsEn());
-    setIsLight(getThemeIsLight());
-    const observer = new MutationObserver(() => {
+    const syncState = () => {
       setIsEn(getLangIsEn());
       setIsLight(getThemeIsLight());
-    });
+      setThemePref(getThemePreference());
+    };
+    syncState();
+    const observer = new MutationObserver(syncState);
     observer.observe(root, {
       attributes: true,
-      attributeFilter: ['lang', 'data-theme']
+      attributeFilter: ['lang', 'data-theme', 'data-theme-preference']
     });
     return () => observer.disconnect();
   }, []);
@@ -80,20 +89,42 @@ export function TopNav() {
     });
   };
 
+  const isSystemTheme = themePref === 'system';
+
   const labels = isEn
     ? {
         markAllRead: 'Mark All Read',
         loginMenu: 'Accounts',
-        themeToggle: isLight ? 'Switch to dark mode' : 'Switch to light mode',
-        themeLabel: isLight ? 'Light Mode' : 'Dark Mode',
+        themeToggle: isSystemTheme
+          ? isLight
+            ? 'Following system (Light) · Click for dark mode'
+            : 'Following system (Dark) · Click for light mode'
+          : isLight
+            ? 'Switch to dark mode'
+            : 'Switch to light mode',
+        themeLabel: isSystemTheme
+          ? 'Auto (System)'
+          : isLight
+            ? 'Light Mode'
+            : 'Dark Mode',
         settings: 'Settings',
         toggleSidebar: collapsed ? 'Expand sidebar' : 'Collapse sidebar'
       }
     : {
         markAllRead: '全部已读',
         loginMenu: '登录账号',
-        themeToggle: isLight ? '切换深色模式' : '切换浅色模式',
-        themeLabel: isLight ? '浅色模式' : '深色模式',
+        themeToggle: isSystemTheme
+          ? isLight
+            ? '跟随系统（当前浅色）· 点击切换深色模式'
+            : '跟随系统（当前深色）· 点击切换浅色模式'
+          : isLight
+            ? '切换深色模式'
+            : '切换浅色模式',
+        themeLabel: isSystemTheme
+          ? '跟随系统'
+          : isLight
+            ? '浅色模式'
+            : '深色模式',
         settings: '设置',
         toggleSidebar: collapsed ? '展开侧边栏' : '收起侧边栏'
       };
@@ -198,9 +229,12 @@ export function TopNav() {
             size="compact-sm"
             radius="md"
             fullWidth
-            className="btn-tool sidebar-nav-item theme-toggle"
+            className={`btn-tool sidebar-nav-item theme-toggle${
+              isSystemTheme ? ' is-system-theme' : ''
+            }`}
             role="switch"
-            aria-checked="false"
+            aria-checked={isLight ? 'false' : 'true'}
+            data-theme-preference={themePref}
             title={labels.themeToggle}
             leftSection={
               <span className="sidebar-icon-wrap">
@@ -216,6 +250,12 @@ export function TopNav() {
                   stroke={1.8}
                   aria-hidden="true"
                 />
+                {isSystemTheme && (
+                  <span
+                    className="theme-auto-indicator"
+                    aria-hidden="true"
+                  />
+                )}
               </span>
             }
           >
