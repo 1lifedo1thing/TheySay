@@ -2532,8 +2532,8 @@ body {
 .tweet-popup-fallback {
   width: 100%;
   max-width: 650px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-bubble);
+  border: 1px solid var(--border-bubble, var(--border-subtle));
   border-radius: 16px;
   padding: 20px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
@@ -2559,7 +2559,7 @@ body {
   height: 38px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-bubble, var(--border-subtle));
 }
 
 .tweet-popup-fallback-avatar-placeholder {
@@ -2571,7 +2571,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-bubble, var(--border-subtle));
 }
 
 .tweet-popup-fallback-names {
@@ -2583,12 +2583,12 @@ body {
 .tweet-popup-fallback-name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--bubble-text-color, var(--text-primary));
 }
 
 .tweet-popup-fallback-handle {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--bubble-time-color, var(--text-muted));
 }
 
 .tweet-popup-fallback-avatar.is-clickable,
@@ -2608,7 +2608,7 @@ body {
 .tweet-popup-fallback-text {
   font-size: 14px;
   line-height: 1.55;
-  color: var(--text-body);
+  color: var(--bubble-text-color, var(--text-body));
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2623,14 +2623,14 @@ body {
   font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
-  color: var(--text-primary);
+  color: var(--bubble-text-color, var(--text-primary));
 }
 
 .tweet-popup-fallback-article-heading {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.4;
-  color: var(--text-primary);
+  color: var(--bubble-text-color, var(--text-primary));
   margin-top: 4px;
 }
 
@@ -2640,7 +2640,7 @@ body {
   gap: 8px;
   padding: 6px 10px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--bubble-time-color, var(--text-muted));
 }
 
 .tweet-popup-fallback-quote {
@@ -2699,13 +2699,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
+  padding-top: 4px;
 }
 
 .tweet-popup-fallback-time {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--bubble-time-color, var(--text-muted));
 }
 
 .tweet-popup-fallback-btn {
@@ -2946,9 +2945,9 @@ body {
   line-height: 1.3;
   padding: 1px 5px;
   border-radius: 4px;
-  color: var(--text-secondary);
+  color: var(--bubble-time-color, var(--text-secondary));
   background-color: rgba(128, 128, 128, 0.14);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-bubble-hover, var(--border-subtle));
 }
 
 /* Discord & Threads message modal (rendered locally, no third-party embed) */
@@ -2960,8 +2959,8 @@ body {
 .discord-popup-card {
   width: 100%;
   max-width: 650px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-bubble);
+  border: 1px solid var(--border-bubble, var(--border-subtle));
   border-radius: 16px;
   padding: 20px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
@@ -3015,12 +3014,12 @@ body {
 .discord-popup-name {
   font-size: 15px;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--bubble-text-color, var(--text-main));
 }
 
 .threads-popup-handle {
   font-size: 12.5px;
-  color: var(--text-secondary);
+  color: var(--bubble-time-color, var(--text-secondary));
 }
 
 .discord-popup-reply {
@@ -3028,7 +3027,7 @@ body {
   padding-left: 10px;
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--text-secondary);
+  color: var(--bubble-time-color, var(--text-secondary));
 }
 
 .discord-popup-reply-author {
@@ -3037,7 +3036,7 @@ body {
 }
 
 .threads-popup-quote {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-bubble-hover, var(--border-subtle));
   border-radius: 10px;
   padding: 10px 12px;
   background-color: rgba(128, 128, 128, 0.08);
@@ -3049,13 +3048,13 @@ body {
 .threads-popup-quote-author {
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--bubble-text-color, var(--text-main));
 }
 
 .threads-popup-quote-text {
   font-size: 13px;
   line-height: 1.45;
-  color: var(--text-secondary);
+  color: var(--bubble-time-color, var(--text-secondary));
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -3063,7 +3062,7 @@ body {
 .discord-popup-text {
   font-size: 14.5px;
   line-height: 1.55;
-  color: var(--text-body);
+  color: var(--bubble-text-color, var(--text-body));
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 45vh;
@@ -3127,12 +3126,11 @@ body {
   justify-content: space-between;
   gap: 12px;
   padding-top: 4px;
-  border-top: 1px solid var(--border-subtle);
 }
 
 .discord-popup-time {
   font-size: 11.5px;
-  color: var(--text-muted);
+  color: var(--bubble-time-color, var(--text-muted));
 }
 
 /* Primary Action Button */
@@ -4473,8 +4471,8 @@ body {
 
 .mantine-Paper-root.tweet-popup-fallback,
 .mantine-Paper-root.discord-popup-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-bubble);
+  border: 1px solid var(--border-bubble, var(--border-subtle));
 }
 
 .mantine-Avatar-root.discord-popup-avatar-wrap,

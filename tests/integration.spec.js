@@ -3940,6 +3940,110 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
       'https://www.threads.com/@zuck'
     ]);
   });
+
+  test('29. Discord, Threads & fallback message preview popups match message bubble background color instead of chat background', async () => {
+    const popupColorCheck = await page.evaluate(async () => {
+      const { applyChatBgColor, applyBubbleColor } = require('./src/ui/theme');
+      const { getChatBgColor, getBubbleBgColor } = require('./src/core/storage');
+      const { openPostPopup, closePostPopup } = require('./src/ui/popup');
+
+      const prevChatBg = getChatBgColor();
+      const prevBubbleBg = getBubbleBgColor();
+
+      try {
+        // Distinct green chat background (#e8f3ee) + white bubble (#ffffff)
+        applyChatBgColor('#e8f3ee');
+        applyBubbleColor('#ffffff');
+
+        openPostPopup({
+          id: 'discord_bg_match_1',
+          source: 'discord',
+          displayName: 'CORD价值投资者Frank',
+          text: '大宗商品的一个小阳春可能要开始了。gc，si，cl，dba',
+          time: '11:03 AM',
+          url: 'https://discord.com/channels/1/2/3'
+        });
+        await new Promise((r) => setTimeout(r, 30));
+        const discordCard = document.querySelector('.discord-embed-slot.is-active .discord-popup-card');
+        const discordLightBg = window.getComputedStyle(discordCard).backgroundColor;
+        const discordLightText = window.getComputedStyle(
+          discordCard.querySelector('.discord-popup-text')
+        ).color;
+        const discordFooterBorderTop = window.getComputedStyle(
+          discordCard.querySelector('.discord-popup-footer')
+        ).borderTopStyle;
+
+        // Switching to a dark bubble color updates both card background and text contrast
+        applyBubbleColor('#172332');
+        await new Promise((r) => setTimeout(r, 30));
+        const discordDarkBg = window.getComputedStyle(discordCard).backgroundColor;
+        const discordDarkName = window.getComputedStyle(
+          discordCard.querySelector('.discord-popup-name')
+        ).color;
+        const discordDarkText = window.getComputedStyle(
+          discordCard.querySelector('.discord-popup-text')
+        ).color;
+
+        // Restore white bubble and verify Threads & Twitter fallback cards match bubble background too
+        applyBubbleColor('#ffffff');
+        openPostPopup({
+          id: 'threads_bg_match_1',
+          source: 'threads',
+          displayName: 'Mark Zuckerberg',
+          userHandle: '@zuck',
+          text: 'Threads popup background consistency check.',
+          time: '11:05 AM',
+          url: 'https://www.threads.com/@zuck/post/BG1'
+        });
+        await new Promise((r) => setTimeout(r, 30));
+        const threadsCard = document.querySelector('.threads-embed-slot.is-active .threads-popup-card');
+        const threadsLightBg = window.getComputedStyle(threadsCard).backgroundColor;
+
+        openPostPopup({
+          id: '998877665544332211',
+          source: 'twitter',
+          displayName: 'Beardo',
+          userHandle: '@BeardoTrader',
+          text: 'Twitter fallback popup background consistency check.',
+          time: '11:06 AM',
+          url: 'https://x.com/BeardoTrader/status/998877665544332211',
+          isMemberOnly: true
+        });
+        await new Promise((r) => setTimeout(r, 30));
+        const fallbackCard = document.querySelector('.tweet-embed-slot.is-active .tweet-popup-fallback');
+        const fallbackLightBg = window.getComputedStyle(fallbackCard).backgroundColor;
+        const fallbackFooterBorderTop = window.getComputedStyle(
+          fallbackCard.querySelector('.tweet-popup-fallback-footer')
+        ).borderTopStyle;
+
+        closePostPopup();
+        return {
+          discordLightBg,
+          discordLightText,
+          discordFooterBorderTop,
+          discordDarkBg,
+          discordDarkName,
+          discordDarkText,
+          threadsLightBg,
+          fallbackLightBg,
+          fallbackFooterBorderTop
+        };
+      } finally {
+        applyChatBgColor(prevChatBg);
+        applyBubbleColor(prevBubbleBg);
+      }
+    });
+
+    expect(popupColorCheck.discordLightBg).toBe('rgb(255, 255, 255)');
+    expect(popupColorCheck.discordLightText).toBe('rgb(15, 20, 25)');
+    expect(popupColorCheck.discordFooterBorderTop).toBe('none');
+    expect(popupColorCheck.discordDarkBg).toBe('rgb(23, 35, 50)');
+    expect(popupColorCheck.discordDarkName).toBe('rgb(228, 233, 239)');
+    expect(popupColorCheck.discordDarkText).toBe('rgb(228, 233, 239)');
+    expect(popupColorCheck.threadsLightBg).toBe('rgb(255, 255, 255)');
+    expect(popupColorCheck.fallbackLightBg).toBe('rgb(255, 255, 255)');
+    expect(popupColorCheck.fallbackFooterBorderTop).toBe('none');
+  });
 });
 
 
