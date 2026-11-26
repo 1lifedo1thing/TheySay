@@ -3677,6 +3677,269 @@ test.describe.serial('TheySay Electron Integration Tests', () => {
     await expect(page.locator('#grid-stack-container > .grid-stack-item')).toHaveCount(4);
     await expect(page.locator('.grid-empty-slot-btn')).toHaveCount(0);
   });
+
+  test('28. Tweet embed click exclusion: avatar/name/links/quoted cards open externally while plain text, blank space, Show more, and Copy link stay in-place', async () => {
+    const result = await page.evaluate(async () => {
+      const { shell } = require('electron');
+      const origOpenExternal = shell.openExternal;
+      const openedUrls = [];
+      shell.openExternal = (url) => {
+        openedUrls.push(url);
+        return Promise.resolve();
+      };
+
+      const prevMock = window.__THEYSAY_MOCK_TWEET_DATA;
+      const iframe = document.createElement('iframe');
+      try {
+        window.__THEYSAY_MOCK_TWEET_DATA = {
+          '2000000000000000001': {
+            id: '2000000000000000001',
+            text: '$SOXL full expanded note_tweet body text without leaving the app.',
+            codePointLength: 64,
+            entities: null,
+            images: []
+          }
+        };
+
+        iframe.style.width = '650px';
+        iframe.style.height = '600px';
+        document.body.appendChild(iframe);
+
+        const frameWin = iframe.contentWindow;
+        const frameDoc = iframe.contentDocument;
+        frameDoc.open();
+        frameDoc.write(`<!doctype html><html><head><meta charset="utf-8"></head><body>
+          <div id="app">
+            <article role="article" id="main-article">
+              <div id="blank-space" style="height:20px;"></div>
+              <div id="header">
+                <a id="avatar-link" href="https://twitter.com/BeardoTrader?ref_src=twsrc%5Etfw&s=20">
+                  <img id="avatar-img" alt="Beardo" />
+                </a>
+                <a id="name-link" href="https://twitter.com/BeardoTrader?ref_src=twsrc%5Etfw">
+                  <span id="name-span">Beardo</span>
+                </a>
+                <a id="handle-link" href="https://twitter.com/BeardoTrader?ref_url=https%3A%2F%2Fexample.com">
+                  <span id="handle-span">@BeardoTrader</span>
+                </a>
+                <a id="follow-link" href="https://twitter.com/intent/follow?screen_name=BeardoTrader&ref_src=twsrc%5Etfw">Follow</a>
+                <a id="x-logo-link" href="https://twitter.com/BeardoTrader/status/2000000000000000001?ref_src=twsrc%5Etfw">X</a>
+              </div>
+              <div data-testid="tweetText" id="main-text">
+                <a id="cashtag-link" href="https://twitter.com/search?q=%24SOXL&src=cashtag_click&s=20"><span>$SOXL</span></a>
+                <span id="plain-text"> trying to set the record today for its largest total drawdown in history.</span>
+                <a id="inline-url" href="https://example.com/report?ref_src=twsrc%5Etfw">example.com/report</a>
+                <a id="show-more" data-testid="tweet-text-show-more-link" href="https://x.com/BeardoTrader/status/2000000000000000001">Show more</a>
+              </div>
+              <a id="photo-link" href="https://twitter.com/BeardoTrader/status/2000000000000000001/photo/1?s=20">
+                <img id="photo-img" alt="chart" />
+              </a>
+              <article role="article" id="quoted-article">
+                <a href="https://twitter.com/QuotedUser/status/2000000000000000002?ref_src=twsrc%5Etfw"></a>
+                <div id="quoted-author">QuotedUser</div>
+                <div data-testid="tweetText" id="quoted-text"><span>Quoted post content</span></div>
+              </article>
+              <div id="footer">
+                <a id="timestamp-link" href="https://twitter.com/BeardoTrader/status/2000000000000000001?ref_src=twsrc%5Etfw">4:32 AM · Nov 25, 2026</a>
+                <div id="copy-link-btn" role="button">Copy link to post</div>
+                <div id="anchorless-pivot" role="link">Community Note</div>
+                <a id="replies-link" href="https://twitter.com/BeardoTrader/status/2000000000000000001?ref_src=twsrc%5Etfw">Read 78 replies</a>
+              </div>
+            </article>
+          </div>
+        </body></html>`);
+        frameDoc.close();
+
+        window.__theysayInitEmbedFrame(frameWin, frameDoc);
+
+        let copyLinkClicks = 0;
+        frameDoc.getElementById('copy-link-btn').addEventListener('click', () => {
+          copyLinkClicks += 1;
+        });
+        frameDoc.getElementById('anchorless-pivot').addEventListener('click', () => {
+          frameWin.open('https://x.com/i/birdwatch/n/123?ref_src=twsrc%5Etfw');
+        });
+
+        const waitTick = () => new Promise((r) => setTimeout(r, 25));
+        const clickEl = async (el) => {
+          el.dispatchEvent(
+            new frameWin.MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 20, clientY: 20, detail: 1 })
+          );
+          el.dispatchEvent(
+            new frameWin.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 20, detail: 1 })
+          );
+          await waitTick();
+        };
+
+        // Check computed cursors
+        const cursors = {
+          blank: frameWin.getComputedStyle(frameDoc.getElementById('blank-space')).cursor,
+          plainText: frameWin.getComputedStyle(frameDoc.getElementById('plain-text')).cursor,
+          avatar: frameWin.getComputedStyle(frameDoc.getElementById('avatar-img')).cursor,
+          name: frameWin.getComputedStyle(frameDoc.getElementById('name-span')).cursor,
+          cashtag: frameWin.getComputedStyle(frameDoc.getElementById('cashtag-link')).cursor,
+          quotedText: frameWin.getComputedStyle(frameDoc.getElementById('quoted-text')).cursor,
+          copyBtn: frameWin.getComputedStyle(frameDoc.getElementById('copy-link-btn')).cursor
+        };
+
+        // 1. Clicking plain text & blank background must NOT open external browser
+        await clickEl(frameDoc.getElementById('plain-text'));
+        await clickEl(frameDoc.getElementById('blank-space'));
+        const afterExcludedCount = openedUrls.length;
+
+        // 2. Clicking avatar, name, handle, follow, X logo, photo, inline links, timestamp, replies, quoted tweet all open cleanly
+        await clickEl(frameDoc.getElementById('avatar-img'));
+        await clickEl(frameDoc.getElementById('name-span'));
+        await clickEl(frameDoc.getElementById('handle-span'));
+        await clickEl(frameDoc.getElementById('follow-link'));
+        await clickEl(frameDoc.getElementById('x-logo-link'));
+        await clickEl(frameDoc.getElementById('cashtag-link'));
+        await clickEl(frameDoc.getElementById('inline-url'));
+        await clickEl(frameDoc.getElementById('photo-img'));
+        await clickEl(frameDoc.getElementById('quoted-text'));
+        await clickEl(frameDoc.getElementById('timestamp-link'));
+        await clickEl(frameDoc.getElementById('replies-link'));
+        await clickEl(frameDoc.getElementById('anchorless-pivot'));
+
+        // 3. Copy link button triggers native handler without opening external browser
+        const beforeCopyCount = openedUrls.length;
+        await clickEl(frameDoc.getElementById('copy-link-btn'));
+        const afterCopyCount = openedUrls.length;
+
+        // 4. Dragging across a link must NOT open it, while clicking avatar after selecting plain text DOES open it
+        const beforeDragCount = openedUrls.length;
+        const cashtagEl = frameDoc.getElementById('cashtag-link');
+        cashtagEl.dispatchEvent(
+          new frameWin.MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, detail: 1 })
+        );
+        cashtagEl.dispatchEvent(
+          new frameWin.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 90, clientY: 10, detail: 1 })
+        );
+        await waitTick();
+        const afterDragCount = openedUrls.length;
+
+        // Select plain text, then click avatar -> should still open avatar profile!
+        const range = frameDoc.createRange();
+        range.selectNodeContents(frameDoc.getElementById('plain-text'));
+        const sel = frameWin.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        await clickEl(frameDoc.getElementById('avatar-img'));
+        const afterSelectThenAvatarCount = openedUrls.length;
+
+        // 5. Clicking "Show more" expands full text in-place without opening external browser
+        const beforeShowMoreCount = openedUrls.length;
+        await clickEl(frameDoc.getElementById('show-more'));
+        await new Promise((r) => setTimeout(r, 80));
+        const afterShowMoreCount = openedUrls.length;
+        const expandedText = frameDoc.getElementById('main-text').textContent;
+
+        return {
+          cursors,
+          afterExcludedCount,
+          openedUrls,
+          copyLinkClicks,
+          beforeCopyCount,
+          afterCopyCount,
+          beforeDragCount,
+          afterDragCount,
+          afterSelectThenAvatarCount,
+          beforeShowMoreCount,
+          afterShowMoreCount,
+          expandedText
+        };
+      } finally {
+        shell.openExternal = origOpenExternal;
+        window.__THEYSAY_MOCK_TWEET_DATA = prevMock;
+        iframe.remove();
+      }
+    });
+
+    expect(result.cursors).toEqual({
+      blank: 'default',
+      plainText: 'text',
+      avatar: 'pointer',
+      name: 'pointer',
+      cashtag: 'pointer',
+      quotedText: 'pointer',
+      copyBtn: 'pointer'
+    });
+    expect(result.afterExcludedCount).toBe(0);
+    expect(result.openedUrls.slice(0, 12)).toEqual([
+      'https://twitter.com/BeardoTrader',
+      'https://twitter.com/BeardoTrader',
+      'https://twitter.com/BeardoTrader',
+      'https://twitter.com/intent/follow?screen_name=BeardoTrader',
+      'https://twitter.com/BeardoTrader/status/2000000000000000001',
+      'https://twitter.com/search?q=%24SOXL&src=cashtag_click',
+      'https://example.com/report',
+      'https://twitter.com/BeardoTrader/status/2000000000000000001/photo/1',
+      'https://twitter.com/QuotedUser/status/2000000000000000002',
+      'https://twitter.com/BeardoTrader/status/2000000000000000001',
+      'https://twitter.com/BeardoTrader/status/2000000000000000001',
+      'https://x.com/i/birdwatch/n/123'
+    ]);
+    expect(result.copyLinkClicks).toBe(1);
+    expect(result.afterCopyCount).toBe(result.beforeCopyCount);
+    expect(result.afterDragCount).toBe(result.beforeDragCount);
+    expect(result.afterSelectThenAvatarCount).toBe(result.afterDragCount + 1);
+    expect(result.openedUrls[result.openedUrls.length - 1]).toBe('https://twitter.com/BeardoTrader');
+    expect(result.afterShowMoreCount).toBe(result.beforeShowMoreCount);
+    expect(result.expandedText).toContain('$SOXL full expanded note_tweet body text');
+
+    // Also verify TwitterFallbackCard & ThreadsPopupCard author avatar/name open profile URL on click
+    const fallbackProfileUrls = await page.evaluate(async () => {
+      const { shell } = require('electron');
+      const { openPostPopup, closePostPopup } = require('./src/ui/popup');
+      const origOpenExternal = shell.openExternal;
+      const urls = [];
+      shell.openExternal = (url) => {
+        urls.push(url);
+        return Promise.resolve();
+      };
+      try {
+        openPostPopup({
+          id: '998877665544332299',
+          source: 'twitter',
+          displayName: 'Beardo',
+          userHandle: '@BeardoTrader',
+          text: 'Fallback card header profile click test.',
+          time: '4:32 AM',
+          url: 'https://x.com/BeardoTrader/status/998877665544332299',
+          isMemberOnly: true
+        });
+        await new Promise((r) => setTimeout(r, 50));
+        const twCard = document.querySelector('.tweet-embed-slot.is-active .tweet-popup-fallback');
+        twCard.querySelector('.tweet-popup-fallback-avatar').click();
+        twCard.querySelector('.tweet-popup-fallback-name').click();
+
+        openPostPopup({
+          id: 'threads_99887766',
+          source: 'threads',
+          displayName: 'Mark Zuckerberg',
+          userHandle: '@zuck',
+          text: 'Threads header profile click test.',
+          time: '4:32 AM',
+          url: 'https://www.threads.com/@zuck/post/ABC123'
+        });
+        await new Promise((r) => setTimeout(r, 50));
+        const thCard = document.querySelector('.tweet-embed-slot.is-active .threads-popup-card');
+        thCard.querySelector('.discord-popup-avatar').click();
+        thCard.querySelector('.discord-popup-name').click();
+
+        closePostPopup();
+        return urls;
+      } finally {
+        shell.openExternal = origOpenExternal;
+      }
+    });
+    expect(fallbackProfileUrls).toEqual([
+      'https://x.com/BeardoTrader',
+      'https://x.com/BeardoTrader',
+      'https://www.threads.com/@zuck',
+      'https://www.threads.com/@zuck'
+    ]);
+  });
 });
 
 

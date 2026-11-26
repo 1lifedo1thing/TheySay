@@ -30,6 +30,11 @@ export function ThreadsPopupCard({
     }
   };
 
+  const cleanHandle = String(userHandle || '').replace(/^@+/, '').trim();
+  const profileUrl = /^[A-Za-z0-9_.]+$/.test(cleanHandle)
+    ? `https://www.threads.com/@${cleanHandle}`
+    : '';
+
   return (
     <Paper
       className={`discord-popup-card threads-popup-card ${images.length > 0 ? 'has-images' : ''}`.trim()}
@@ -44,14 +49,20 @@ export function ThreadsPopupCard({
           color="dark"
           variant="filled"
           src={avatarUrl || null}
-          className="discord-popup-avatar threads-avatar-placeholder"
+          className={`discord-popup-avatar threads-avatar-placeholder${profileUrl ? ' is-clickable' : ''}`}
+          data-url={profileUrl || undefined}
           imageProps={{ referrerPolicy: 'no-referrer' }}
         >
           @
         </Avatar>
         <Box className="tweet-popup-fallback-names">
           <Box className="discord-popup-names">
-            <span className="discord-popup-name">{displayName}</span>
+            <span
+              className={`discord-popup-name${profileUrl ? ' is-clickable' : ''}`}
+              data-url={profileUrl || undefined}
+            >
+              {displayName}
+            </span>
             <Badge
               component="span"
               variant="light"
@@ -85,7 +96,12 @@ export function ThreadsPopupCard({
             )}
           </Box>
           {showUserHandle && (
-            <span className="tweet-popup-fallback-handle">{userHandle}</span>
+            <span
+              className={`tweet-popup-fallback-handle${profileUrl ? ' is-clickable' : ''}`}
+              data-url={profileUrl || undefined}
+            >
+              {userHandle}
+            </span>
           )}
         </Box>
       </Box>

@@ -447,9 +447,37 @@ function embedFrameEnhancementRuntime(win, doc) {
     }
   }
 
-  // 2. Block programmatic window.open and anchor.click() triggered by card containers
+  const openCleanExternalUrl = (rawHref) => {
+    if (!rawHref) return;
+    let cleanUrl = String(rawHref).trim();
+    if (!cleanUrl || cleanUrl === '#') return;
+    try {
+      const u = new URL(cleanUrl, 'https://x.com');
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+      u.searchParams.delete('ref_src');
+      u.searchParams.delete('ref_url');
+      u.searchParams.delete('s');
+      cleanUrl = u.toString();
+    } catch (_) {
+      return;
+    }
+
+    if (win.parent && win.parent !== win) {
+      win.parent.postMessage({ type: 'theysay-open-external', url: cleanUrl }, '*');
+    }
+  };
+
+  // 2. Intercept programmatic window.open and block card-container anchor.click().
+  //    Anchorless interactive elements (e.g., role="link" pivots/labels) may call
+  //    window.open during an allowed user click; route those cleanly via postMessage.
+  let lastAllowedUserClickAt = 0;
+  let pointerDownPos = null;
+
   try {
-    win.open = function () {
+    win.open = function (rawUrl) {
+      if (rawUrl && Date.now() - lastAllowedUserClickAt < 1000) {
+        openCleanExternalUrl(rawUrl);
+      }
       return null;
     };
   } catch (_) {}
@@ -460,8 +488,9 @@ function embedFrameEnhancementRuntime(win, doc) {
     }
   } catch (_) {}
 
-  // 3. Inject CSS so non-allowed areas show default/text cursor instead of pointer
-  //    and lock the article card background so it never darkens on hover/press/selection.
+  // 3. Inject CSS so blank card areas show default cursor, plain tweet text shows
+  //    text cursor with free selection, and links / controls / quoted tweets show
+  //    pointer cursor; also lock non-quoted card background against hover/press darkening.
   const isDarkTheme = /[?&]theme=dark\b/i.test(String(win.location.search || ''));
   const injectStyle = () => {
     const root = doc.head || doc.documentElement;
@@ -476,7 +505,7 @@ function embedFrameEnhancementRuntime(win, doc) {
       article[role="article"] {
         max-width: 650px !important;
       }
-      article[role="article"] {
+      article[role="article"]:not([data-theysay-quoted-tweet]) {
         background-color: ${isDarkTheme ? '#000000' : '#ffffff'} !important;
         transition: none !important;
       }
@@ -492,14 +521,18 @@ function embedFrameEnhancementRuntime(win, doc) {
         user-select: text !important;
         -webkit-user-select: text !important;
       }
-      article[role="article"] a[data-testid="tweet-text-show-more-link"],
-      article[role="article"] a[data-testid="tweet-text-show-more-link"] *,
-      a[data-testid="tweet-text-show-more-link"],
-      a[data-testid="tweet-text-show-more-link"] *,
-      article[role="article"] a[data-theysay-allow-open],
-      article[role="article"] a[data-theysay-allow-open] *,
-      a[data-theysay-allow-open],
-      a[data-theysay-allow-open] *,
+      article[role="article"] a[href],
+      article[role="article"] a[href] *,
+      article[role="article"] [data-testid="tweetText"] a[href],
+      article[role="article"] [data-testid="tweetText"] a[href] *,
+      article[role="article"] [role="link"],
+      article[role="article"] [role="link"] *,
+      article[role="article"] [role="button"],
+      article[role="article"] [role="button"] *,
+      article[role="article"] button,
+      article[role="article"] button *,
+      article[role="article"] video,
+      article[role="article"] video *,
       article[role="article"][data-theysay-quoted-tweet],
       article[role="article"][data-theysay-quoted-tweet] *,
       article[role="article"] [data-theysay-quoted-tweet],
@@ -510,8 +543,8 @@ function embedFrameEnhancementRuntime(win, doc) {
       [data-theysay-quoted-tweet] *,
       [data-theysay-quoted-tweet] [data-testid="tweetText"],
       [data-theysay-quoted-tweet] [data-testid="tweetText"] *,
-      article[role="article"] video,
-      article[role="article"] video *,
+      a[href],
+      a[href] *,
       video,
       video * {
         cursor: pointer !important;
@@ -582,52 +615,7 @@ function embedFrameEnhancementRuntime(win, doc) {
     return null;
   };
 
-  const neutralizeCardContainerClick = () => {
-    const article = doc.querySelector('article[role="article"]');
-    if (!article) return;
-    let fiber = getReactFiber(article);
-    let depth = 0;
-    while (fiber && depth < 25) {
-      const inst = fiber.stateNode;
-      if (inst && typeof inst === 'object') {
-        if (typeof inst.handleListItemViewClick === 'function') {
-          inst.handleListItemViewClick = function () {};
-        }
-        // Neutralize Twitter's Interactable (module 86953) hover/press/focus state on the card
-        // so selecting text or hovering never applies activeFaintGray / hoverBlack darkening.
-        if (inst.state && ('isPressed' in inst.state || 'isHovered' in inst.state)) {
-          inst._handlePressDown = function () {};
-          inst._handleHoverIn = function () {};
-          inst._handleFocus = function () {};
-          inst._handleMouseDown = function () {};
-          inst._handleMouseEnter = function () {};
-          if (
-            inst.state.isPressed ||
-            inst.state.isHovered ||
-            inst.state.isFocused ||
-            inst.state.isFocusedWithin
-          ) {
-            try {
-              inst.setState({
-                isFocusedWithin: false,
-                isFocused: false,
-                isHovered: false,
-                isPressed: false
-              });
-            } catch (_) {}
-          }
-        }
-      }
-      fiber = fiber.return;
-      depth++;
-    }
-  };
-
-  // 5. Identify interactive elements:
-  //    (a) "Show more" link ([data-testid="tweet-text-show-more-link"])
-  //    (b) Quoted tweet card (QuotedTweet/index.js)
-  //    (c) Top-right X logo (TwitterLogo/index.js)
-  //    (d) Bottom "Read X replies" primary button (PrimaryActionButton/index.js)
+  // 5. Identify quoted tweet containers and "Show more" links
   const isQuotedTweetArticle = (article) => {
     if (!article || typeof article.getAttribute !== 'function') return false;
     if (article.hasAttribute('data-theysay-quoted-tweet')) return true;
@@ -815,6 +803,58 @@ function embedFrameEnhancementRuntime(win, doc) {
     return null;
   };
 
+  const neutralizeCardContainerClick = () => {
+    const articles = doc.querySelectorAll('article[role="article"]');
+    articles.forEach((article) => {
+      if (isQuotedTweetArticle(article)) return;
+      let fiber = getReactFiber(article);
+      let depth = 0;
+      while (fiber && depth < 25) {
+        const node = fiber.stateNode;
+        if (
+          node &&
+          node !== article &&
+          typeof node.getAttribute === 'function' &&
+          node.getAttribute('role') === 'article'
+        ) {
+          break;
+        }
+        const inst = fiber.stateNode;
+        if (inst && typeof inst === 'object') {
+          if (typeof inst.handleListItemViewClick === 'function') {
+            inst.handleListItemViewClick = function () {};
+          }
+          // Neutralize Twitter's Interactable (module 86953) hover/press/focus state on the card
+          // so selecting text or hovering never applies activeFaintGray / hoverBlack darkening.
+          if (inst.state && ('isPressed' in inst.state || 'isHovered' in inst.state)) {
+            inst._handlePressDown = function () {};
+            inst._handleHoverIn = function () {};
+            inst._handleFocus = function () {};
+            inst._handleMouseDown = function () {};
+            inst._handleMouseEnter = function () {};
+            if (
+              inst.state.isPressed ||
+              inst.state.isHovered ||
+              inst.state.isFocused ||
+              inst.state.isFocusedWithin
+            ) {
+              try {
+                inst.setState({
+                  isFocusedWithin: false,
+                  isFocused: false,
+                  isHovered: false,
+                  isPressed: false
+                });
+              } catch (_) {}
+            }
+          }
+        }
+        fiber = fiber.return;
+        depth++;
+      }
+    });
+  };
+
   const isShowMoreAnchor = (a) => {
     if (!a) return false;
     if (a.getAttribute('data-testid') === 'tweet-text-show-more-link') return true;
@@ -822,57 +862,6 @@ function embedFrameEnhancementRuntime(win, doc) {
       const text = (a.textContent || '').trim();
       if (/^(Show\s+more|显示更多|查看更多)$/i.test(text)) return true;
     }
-    return false;
-  };
-
-  const isTopRightXLogoAnchor = (a) => {
-    if (!a) return false;
-    if (a.getAttribute('data-theysay-allow-open') === 'x-logo') return true;
-    const sources = getFiberSourceFiles(a);
-    if (sources.some((s) => s.includes('TwitterLogo/'))) return true;
-
-    const href = a.getAttribute('href') || '';
-    if (href.includes('twcon%5Es1_c4') || href.includes('twcon%5Es2_c4')) return true;
-
-    const pathEl = a.querySelector('svg path');
-    if (pathEl) {
-      const d = pathEl.getAttribute('d') || '';
-      if (d.startsWith('M18.244 2.25h3.308')) return true;
-    }
-    return false;
-  };
-
-  const isReadRepliesButtonAnchor = (a) => {
-    if (!a) return false;
-    if (a.getAttribute('data-theysay-allow-open') === 'replies-btn') return true;
-    if (findQuotedTweetContainer(a)) return false;
-    if (a.closest('[data-testid="tweetText"]')) return false;
-    if (a.querySelector('svg')) return false;
-
-    const sources = getFiberSourceFiles(a);
-    if (sources.some((s) => s.includes('PrimaryActionButton/'))) return true;
-
-    const text = (a.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!text) return false;
-
-    if (
-      /^(Read\s+[\d,.]+[KMB]?\s+repl(y|ies)|Read\s+the\s+full\s+conversation|View\s+replies|View\s+conversation|Read\s+more\s+on\s+X|View\s+on\s+X|Continue\s+watching\s+on\s+X|Watch\s+on\s+X|See\s+the\s+latest|阅读.*回复|查看.*回复|阅读完整对话|在\s*X\s*上查看)/i.test(
-        text
-      )
-    ) {
-      return true;
-    }
-
-    const article = a.closest('article[role="article"]');
-    if (
-      article &&
-      !isQuotedTweetArticle(article) &&
-      article.lastElementChild &&
-      article.lastElementChild.contains(a)
-    ) {
-      return true;
-    }
-
     return false;
   };
 
@@ -1081,14 +1070,6 @@ function embedFrameEnhancementRuntime(win, doc) {
           a.dataset.theysayPrefetched = '1';
           requestFullTweetFromParent(tid);
         }
-        return;
-      }
-      if (isTopRightXLogoAnchor(a)) {
-        a.setAttribute('data-theysay-allow-open', 'x-logo');
-        return;
-      }
-      if (isReadRepliesButtonAnchor(a)) {
-        a.setAttribute('data-theysay-allow-open', 'replies-btn');
       }
     });
   };
@@ -1107,31 +1088,40 @@ function embedFrameEnhancementRuntime(win, doc) {
     doc.addEventListener('DOMContentLoaded', tagInteractiveElements, { once: true });
   }
 
-  const openCleanExternalUrl = (rawHref) => {
-    if (!rawHref) return;
-    let cleanUrl = String(rawHref);
+  const isTargetInSelection = (el) => {
     try {
-      const u = new URL(cleanUrl, 'https://x.com');
-      u.searchParams.delete('ref_src');
-      u.searchParams.delete('ref_url');
-      u.searchParams.delete('s');
-      cleanUrl = u.toString();
-    } catch (_) {}
-
-    if (win.parent && win.parent !== win) {
-      win.parent.postMessage({ type: 'theysay-open-external', url: cleanUrl }, '*');
+      const sel = win.getSelection && win.getSelection();
+      if (!sel || !String(sel.toString() || '').trim()) return false;
+      if (!el || typeof el.contains !== 'function') return true;
+      if (sel.anchorNode && el.contains(sel.anchorNode)) return true;
+      if (sel.focusNode && el.contains(sel.focusNode)) return true;
+      if (typeof sel.containsNode === 'function' && sel.containsNode(el, true)) return true;
+      return false;
+    } catch (_) {
+      return false;
     }
+  };
+
+  const consumePointerDrag = (e) => {
+    const start = pointerDownPos;
+    pointerDownPos = null;
+    if (!start || e.detail === 0) return false;
+    const dx = (typeof e.clientX === 'number' ? e.clientX : 0) - start.x;
+    const dy = (typeof e.clientY === 'number' ? e.clientY : 0) - start.y;
+    return Math.hypot(dx, dy) > 5;
   };
 
   const handlePointerClick = (e) => {
     if (e.type === 'auxclick' && e.button !== 1) return;
-    const target = e.target;
+    const didDrag = consumePointerDrag(e);
+    const rawTarget = e.target;
+    const target = rawTarget && rawTarget.nodeType === 3 ? rawTarget.parentElement : rawTarget;
     if (!target || typeof target.closest !== 'function') return;
 
-    // 1. Check "Show more" link
-    const showMoreAnchor = target.closest('a[data-testid="tweet-text-show-more-link"]');
-    if (showMoreAnchor || isShowMoreAnchor(target.closest('a'))) {
-      const anchor = showMoreAnchor || target.closest('a');
+    const anchor = target.closest('a[href]') || target.closest('a');
+
+    // 1. "Show more" expands long note_tweet posts in-place instead of opening browser
+    if (anchor && isShowMoreAnchor(anchor)) {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -1141,14 +1131,29 @@ function embedFrameEnhancementRuntime(win, doc) {
       return;
     }
 
-    // 2. Check Quoted Tweet card — clicking anywhere inside the quoted tweet opens the original quoted post
+    // 2. Quoted tweet card — clicking anywhere inside opens the quoted post (or its photo link),
+    //    unless dragging/selecting text or clicking native video/button controls.
     const quotedContainer = findQuotedTweetContainer(target);
     if (quotedContainer) {
+      if (
+        !anchor &&
+        (target.closest('video') ||
+          target.closest('[data-testid="playButton"]') ||
+          target.closest('[role="button"]') ||
+          target.closest('button'))
+      ) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+      if (didDrag || isTargetInSelection(quotedContainer)) return;
       if (e.type === 'click' || (e.type === 'auxclick' && e.button === 1)) {
-        const quotedHref = resolveQuotedTweetUrl(quotedContainer);
+        const anchorHref = anchor ? (anchor.getAttribute('href') || '').trim() : '';
+        const quotedHref =
+          (anchorHref && anchorHref !== '#' && !anchorHref.toLowerCase().startsWith('javascript:')
+            ? anchorHref
+            : '') || resolveQuotedTweetUrl(quotedContainer);
         if (quotedHref) {
           openCleanExternalUrl(quotedHref);
         }
@@ -1156,43 +1161,60 @@ function embedFrameEnhancementRuntime(win, doc) {
       return;
     }
 
-    // 3. Check Top-right X logo or Bottom "Read X replies" button
-    const anchor = target.closest('a');
-    if (anchor && (isTopRightXLogoAnchor(anchor) || isReadRepliesButtonAnchor(anchor))) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      if (e.type === 'click' || (e.type === 'auxclick' && e.button === 1)) {
-        const href =
-          anchor.getAttribute('href') ||
-          (getMainTweetId() ? `https://x.com/i/web/status/${getMainTweetId()}` : '');
-        openCleanExternalUrl(href);
+    // 3. Any explicit hyperlink (<a href="...">): author avatar, name, @handle, Follow,
+    //    top-right X logo, inline URLs/@mentions/$cashtags/#hashtags, photos/media,
+    //    timestamp, Like, Reply, Read replies, link cards — open externally unless the
+    //    user dragged/selected text across it.
+    if (anchor) {
+      const href = (anchor.getAttribute('href') || '').trim();
+      if (href && href !== '#' && !href.toLowerCase().startsWith('javascript:')) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (didDrag || isTargetInSelection(anchor)) return;
+        if (e.type === 'click' || (e.type === 'auxclick' && e.button === 1)) {
+          openCleanExternalUrl(href);
+        }
+        return;
+      }
+    }
+
+    // 4. Allow native non-link interactive controls (video playback, "Copy link to post"
+    //    button, anchorless role="link" pivots) to reach Twitter's own handlers.
+    if (
+      target.closest('video') ||
+      target.closest('[data-testid="playButton"]') ||
+      target.closest('[role="button"]') ||
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('[role="link"]')
+    ) {
+      if (!didDrag && !isTargetInSelection(target)) {
+        lastAllowedUserClickAt = Date.now();
       }
       return;
     }
 
-    // 4. Allow native video playback controls inside embedded video players
-    if (
-      target.closest('video') ||
-      target.closest('[data-testid="playButton"]') ||
-      (target.closest('[role="button"]') && !anchor)
-    ) {
-      e.stopPropagation();
-      return;
-    }
-
-    // 5. Block all other clicks (text body, hashtags/cashtags/mentions/links in text,
-    //    card background, author header, timestamp, action icons) from
-    //    opening external browser windows.
+    // 5. Exclude plain tweet text ([data-testid="tweetText"]) and blank card background
+    //    from triggering external browser navigation.
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
   };
 
   const handlePressStart = (e) => {
-    // Tell Twitter's Interactable (module 86953) that press was already handled
-    // so dragging/selecting text never sets isPressed=true or darkens the card.
-    e._interactivePressHandled = true;
+    if (e.type === 'mousedown') {
+      pointerDownPos = {
+        x: typeof e.clientX === 'number' ? e.clientX : 0,
+        y: typeof e.clientY === 'number' ? e.clientY : 0
+      };
+    }
+    // Tell Twitter's Interactable (module 86953) that press was already handled on
+    // non-quoted cards so dragging/selecting text never sets isPressed=true or darkens the card.
+    const target = e.target;
+    if (!target || !findQuotedTweetContainer(target)) {
+      e._interactivePressHandled = true;
+    }
     neutralizeCardContainerClick();
   };
 

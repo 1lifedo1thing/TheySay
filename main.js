@@ -437,8 +437,8 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
-  // Block automatic popups from embedded tweet iframes; allowed actions
-  // (top-right X logo & Read replies button) open explicitly via postMessage.
+  // Block automatic popups from embedded tweet iframes; external links
+  // open explicitly via postMessage (theysay-open-external).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url && url.includes('#__theysay_open')) {
       shell.openExternal(url.replace('#__theysay_open', ''));

@@ -29,6 +29,8 @@ export function TwitterFallbackCard({
   };
 
   const hasArticleBlocks = Array.isArray(articleBlocks) && articleBlocks.length > 0;
+  const cleanHandle = String(userHandle || '').replace(/^@+/, '').trim();
+  const profileUrl = /^[A-Za-z0-9_]+$/.test(cleanHandle) ? `https://x.com/${cleanHandle}` : '';
 
   return (
     <Paper
@@ -44,12 +46,16 @@ export function TwitterFallbackCard({
           color="dark"
           variant="filled"
           src={avatarUrl || null}
-          className="tweet-popup-fallback-avatar"
+          className={`tweet-popup-fallback-avatar${profileUrl ? ' is-clickable' : ''}`}
+          data-url={profileUrl || undefined}
           imageProps={{ referrerPolicy: 'no-referrer' }}
         >
           𝕏
         </Avatar>
-        <Box className="tweet-popup-fallback-names">
+        <Box
+          className={`tweet-popup-fallback-names${profileUrl ? ' is-clickable' : ''}`}
+          data-url={profileUrl || undefined}
+        >
           <span className="tweet-popup-fallback-name">{displayName}</span>
           <span className="tweet-popup-fallback-handle">{userHandle}</span>
         </Box>

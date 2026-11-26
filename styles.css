@@ -2591,6 +2591,20 @@ body {
   color: var(--text-muted);
 }
 
+.tweet-popup-fallback-avatar.is-clickable,
+.tweet-popup-fallback-names.is-clickable,
+.tweet-popup-fallback-handle.is-clickable,
+.discord-popup-avatar.is-clickable,
+.discord-popup-name.is-clickable {
+  cursor: pointer;
+}
+
+.tweet-popup-fallback-names.is-clickable:hover .tweet-popup-fallback-name,
+.tweet-popup-fallback-handle.is-clickable:hover,
+.discord-popup-name.is-clickable:hover {
+  text-decoration: underline;
+}
+
 .tweet-popup-fallback-text {
   font-size: 14px;
   line-height: 1.55;
